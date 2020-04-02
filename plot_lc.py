@@ -1,0 +1,147 @@
+#import
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import rcParams
+import pandas as pd
+import matplotlib.mlab as mlab
+from scipy.stats import norm
+import matplotlib.font_manager
+from math import ceil, floor
+import sys
+
+args = sys.argv
+
+plot_name = args[1]
+title = args[2]
+flag = args[3]
+
+if flag=='both':
+    rfe_data = args[5]
+    all_features_data = args[4]
+elif flag=='all_features':
+    all_features_data = args[4]
+    rfe_data = None
+elif flag=='rfe':
+    all_features_data = None
+    rfe_data = args[4]
+
+def plot_lc(plot_name, title, flag, all_features_data, rfe_data):
+    
+    if flag=='both':
+        rmse_df = pd.read_csv(all_features_data)
+        rmse_df_rfe = pd.read_csv(rfe_data)
+    
+    elif flag=='all_features':
+        rmse_df = pd.read_csv(all_features_data)
+        rmse_df_rfe = rmse_df
+
+    elif flag=='rfe':
+        rmse_df_rfe = pd.read_csv(rfe_data)
+        rmse_df = rmse_df_rfe
+    
+    tr_size = list(rmse_df['trainset_size'].unique()*100)
+    rfe_tr_size = list(rmse_df_rfe['trainset_size'].unique()*100)
+    
+    runs_per_tr_size = max(rmse_df['model_index']) + 1
+    rfe_runs_per_tr_size = max(rmse_df_rfe['model_index']) + 1
+
+    X_ = np.array(tr_size) #change number of data
+    X = X_.astype(int)
+
+    xticks = X
+    xlim = [10,100] #change number of data
+
+    tickfontsize=16
+    labelfontsize=16
+    barcolor='#FDA65F'
+    linewidth=0.3
+
+    total=680 #change number of data
+
+    rcParams['mathtext.default'] = 'regular'
+    fig=plt.figure(figsize=(6,4),dpi=450)
+    plt.rc('font', family='Arial narrow')
+    plt.subplots_adjust(left=0.15, right=0.98, top=0.96, bottom=0.15, wspace=0, hspace=0)
+
+    bins = 25  # curve smoothness
+    curve_mag_max =total/10/2
+    sigma_n = 3  # draw until +- sigma_n * sigma around mean
+    bar_width = curve_mag_max * 0.2
+
+    rmse_train_average = list()
+    rmse_test_average = list()
+    rmse_train_std = list()
+    rmse_test_std = list()
+
+    for i in range(len(tr_size)):
+        n_runs = runs_per_tr_size
+
+        X_fit_tr = np.array(rmse_df['RMSE_train'][n_runs*i:n_runs*(i+1)]) #'tr' means training
+        X_fit_te = np.array(rmse_df['RMSE_test'][n_runs*i:n_runs*(i+1)]) #'te' means test
+
+        X_fit_std_tr = np.std(X_fit_tr)
+        X_fit_mean_tr = np.mean(X_fit_tr)
+
+        X_fit_std_te = np.std(X_fit_te)
+        X_fit_mean_te = np.mean(X_fit_te)
+
+        rmse_train_average.append(X_fit_mean_tr)
+        rmse_train_std.append(X_fit_std_tr)
+
+        rmse_test_average.append(X_fit_mean_te)
+        rmse_test_std.append(X_fit_std_te)
+
+    rmse_train_average1 = list()
+    rmse_test_average1 = list()
+    rmse_train_std1 = list()
+    rmse_test_std1 = list()
+
+    for i in range(len(rfe_tr_size)):
+
+        n_runs = rfe_runs_per_tr_size
+
+        X_fit_tr = np.array(rmse_df_rfe['RMSE_train'][n_runs*i:n_runs*(i+1)]) #'tr' means training
+        X_fit_te = np.array(rmse_df_rfe['RMSE_test'][n_runs*i:n_runs*(i+1)]) #'te' means test
+
+        X_fit_std_tr = np.std(X_fit_tr)
+        X_fit_mean_tr = np.mean(X_fit_tr)
+
+        X_fit_std_te = np.std(X_fit_te)
+        X_fit_mean_te = np.mean(X_fit_te)
+
+        rmse_train_average1.append(X_fit_mean_tr)
+        rmse_train_std1.append(X_fit_std_tr)
+
+        rmse_test_average1.append(X_fit_mean_te)
+        rmse_test_std1.append(X_fit_std_te)
+
+        plt.rcParams["font.family"] = "Sans-serif"
+
+    if all_features_data != None:
+        plt.errorbar(X, rmse_train_average,yerr=rmse_train_std, c='crimson', marker='o', lw=1, alpha=1, zorder=10, label='All features - train')
+        plt.errorbar(X, rmse_test_average, yerr=rmse_test_std,c='crimson', marker='s',  lw=1, alpha=1, zorder=10,label='All features - test')
+    
+    if rfe_data != None:
+    	plt.errorbar(X, rmse_train_average1,yerr=rmse_train_std1, c='navy', marker='o', lw=1, alpha=1, zorder=10, label='RFE - train')
+    	plt.errorbar(X, rmse_test_average1, yerr=rmse_test_std1,c='navy', marker='s',  lw=1, alpha=1, zorder=10,label='RFE - test')
+    # plt.errorbar(X, rmse_train_average2,yerr=rmse_train_std2, c='limegreen', marker='o', lw=1, alpha=1, zorder=10, label='MF409_train')
+    # plt.errorbar(X, rmse_test_average2, yerr=rmse_test_std2,c='limegreen', marker='s',  lw=1, alpha=1, zorder=10,label='MF409_test')
+
+    plt.legend(prop={'size': 7}, ncol=2)
+
+    plt.rc('xtick', labelsize=9)
+    plt.rc('ytick', labelsize=9)
+    plt.xlabel('Training set %',fontsize=12, fontweight='bold')
+    plt.ylabel('RMSE',fontsize=12, fontweight='bold')
+    plt.title(title)
+
+    max_rmse = ceil(max(max(rmse_train_average, rmse_train_average1, rmse_test_average, rmse_test_average1))* 10) / 10
+    min_rmse = floor(min(min(rmse_train_average, rmse_train_average1, rmse_test_average, rmse_test_average1))* 10) / 10
+    plt.tight_layout()
+    plt.xticks(xticks)
+    plt.ylim(min_rmse,max_rmse)
+
+
+    plt.savefig(plot_name)
+
+plot_lc(plot_name, title, flag, all_features_data, rfe_data)
