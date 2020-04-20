@@ -47,7 +47,7 @@ class hmofMLdataset:
                  SD_grav_data_path='/data/rgur/efrc/prep_data/all_no_norm/ml_data.csv',SI_stacked_path=
                 '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
                  SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv',
-                 Y_DATA_PATH='/data/rgur/efrc/data_DONOTTOUCH/hMOF_allData_March25_2013.xlsx', n_core=8, skip=[]):
+                 Y_DATA_PATH='/data/rgur/efrc/data_DONOTTOUCH/hMOF_allData_March25_2013.xlsx', n_core=15, skip=[]):
         self.results_dir = results_dir
         os.chdir(self.results_dir)
         self.SI_grav_data_path = SI_grav_data_path
@@ -149,7 +149,8 @@ class hmofMLdataset:
                     drop_features = [s for s in self.iso_all_features if s not in run_features]
                     #l.append(self.iso.drop(drop_features, axis=1))
                     FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-                                       self.iso_target_mean, self.iso_target_std, stacked=STACKED, fp_code=CODE).run()
+                                       self.iso_target_mean, self.iso_target_std, stacked=STACKED, fp_code=CODE, n_core=
+                             1).run()
                 else:
                     print("Running code %s for gravimetric uptake model" %CODE)
                     drop_features = [s for s in self.grav_all_features if s not in run_features]
@@ -158,7 +159,7 @@ class hmofMLdataset:
        
 class FpDataSet:
     def __init__(self, df, features, property_used, target_mean, target_std, stacked, fp_code, PCA_DIM=400, 
-                 rand_seeds=[0, 10, 20], train_grid = [.5, .6, .7, .8, .9]):
+                 rand_seeds=[0, 10, 20], train_grid = [.5, .6, .7, .8, .9], n_core=15):
         self.df = df
         self.rand_seeds = rand_seeds
         self.fp_code = fp_code
@@ -169,6 +170,7 @@ class FpDataSet:
         self.PCA_DIM = min(PCA_DIM, self.n_samples)
         self.features = features
         self.stacked = stacked
+        self.n_core = n_core
         if self.stacked:
             self.algo = 'nn'
             self.model_tag = 'iso'
@@ -224,7 +226,7 @@ class FpDataSet:
         for train_pct in self.train_grid:
             for seed in self.rand_seeds:
                 self.parallel_data.append((train_pct, seed))
-        Parallel(n_jobs=15)(delayed(self.helper)(j) for j in self.parallel_data)
+        Parallel(n_jobs=self.n_core)(delayed(self.helper)(j) for j in self.parallel_data)
 #         for train_pct in self.train_grid:
 #             TRAIN_PCT = int(round(train_pct*100))
 #             for seed in self.rand_seeds:
@@ -417,4 +419,4 @@ hmofMLdataset('/data/rgur/efrc/ml/results/',
                    SI_grav_data_path='/data/rgur/efrc/prep_data/all_v1/ml_data.csv', 
                  SD_grav_data_path='/data/rgur/efrc/prep_data/all_no_norm/ml_data.csv',SI_stacked_path=
                 '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
-                 SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv', skip=[]).makeAllResults()
+                 SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv', skip=['10000', '11000', '01000', '10100', '11100', '01100', '10010', '11010', '01010', '10110', '11110', '01110'], n_core=15).makeAllResults()
