@@ -43,11 +43,12 @@ from skopt import gp_minimize
 from multiprocessing import Pool
 
 class hmofMLdataset:
-    def __init__(self, results_dir, SI_grav_data_path='/data/rgur/efrc/prep_data/all_v1/ml_data.csv', 
+    def __init__(self, results_dir, now, SI_grav_data_path='/data/rgur/efrc/prep_data/all_v1/ml_data.csv', 
                  SD_grav_data_path='/data/rgur/efrc/prep_data/all_no_norm/ml_data.csv',SI_stacked_path=
                 '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
                  SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv',
-                 Y_DATA_PATH='/data/rgur/efrc/data_DONOTTOUCH/hMOF_allData_March25_2013.xlsx', n_core=15, skip=[]):
+                 Y_DATA_PATH='/data/rgur/efrc/data_DONOTTOUCH/hMOF_allData_March25_2013.xlsx', n_core=15, skip=[], 
+                 job_dict=None):
         self.results_dir = results_dir
         os.chdir(self.results_dir)
         self.SI_grav_data_path = SI_grav_data_path
@@ -74,8 +75,12 @@ class hmofMLdataset:
                              '10001', '11001', '01001', '10101', '11101', '01101',
                              '10011', '11011', '01011', '10111', '11111', '01111']
         self.feature_codes = [i for i in self.feature_codes if i not in self.skip]
+        self.job_dict = job_dict
+        if self.job_dict != None:
+            self.feature_codes = list(job_dict.keys())
         print("There are %s unique feature codes" %len(set(self.feature_codes)))
-        print("now is %s" %now)
+        self.now = now
+        print("now is %s" %self.now)
         
     
     def makeMasterDFs(self):
@@ -119,22 +124,7 @@ class hmofMLdataset:
             sd_df = pd.read_csv(self.SD_grav_data_path)
             pg += [s for s in ml.getPGcolNames(sd_df, self.grav_start_str_sd, self.grav_end_str_sd) if s in
                   self.grav_all_features]
-        return non_pg + pg
-    
-    def makeResult(self, i):
-        STACKED = bool(int(i[-1])) #True (=1) if stacked
-        CODE = i[:-1]
-        run_features = self.select_features(code=CODE, stacked=STACKED)
-        if STACKED:
-            print("Running code %s for isotherm model" %CODE)
-            drop_features = [s for s in self.iso_all_features if s not in run_features]
-            FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-                               self.iso_target_mean, self.iso_target_std, stacked=STACKED, fp_code=CODE).run()
-        else:
-            print("Running code %s for gravimetric uptake model" %CODE)
-            drop_features = [s for s in self.grav_all_features if s not in run_features]
-            FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
-                               self.grav_target_mean, self.grav_target_std, stacked=STACKED, fp_code=CODE)        
+        return non_pg + pg    
     
     def makeAllResults(self):
         self.makeMasterDFs()
@@ -144,22 +134,30 @@ class hmofMLdataset:
                 STACKED = bool(int(i[-1])) #True (=1) if stacked
                 CODE = i[:-1]
                 run_features = self.select_features(code=CODE, stacked=STACKED)
+                try:
+                    TRAIN_GRID, SEEDS = self.job_dict[i]
+                except:
+                    print('Failed to Find Code in job_dict')
+                    TRAIN_GRID = [.5, .6, .7, .8, .9]
+                    SEEDS = [0, 10, 20]
                 if STACKED:
                     print("Running code %s for isotherm model" %CODE)
                     drop_features = [s for s in self.iso_all_features if s not in run_features]
                     #l.append(self.iso.drop(drop_features, axis=1))
                     FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-                                       self.iso_target_mean, self.iso_target_std, stacked=STACKED, fp_code=CODE, n_core=
-                             1).run()
+                              self.iso_target_mean, self.iso_target_std, now=self.now, stacked=STACKED, fp_code=CODE, n_core=1, 
+                              rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
                 else:
                     print("Running code %s for gravimetric uptake model" %CODE)
                     drop_features = [s for s in self.grav_all_features if s not in run_features]
                     FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
-                                       self.grav_target_mean, self.grav_target_std, stacked=STACKED, fp_code=CODE).run()
+                                       self.grav_target_mean, self.grav_target_std, now=self.now, stacked=STACKED, fp_code=CODE,
+                                         rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
        
 class FpDataSet:
-    def __init__(self, df, features, property_used, target_mean, target_std, stacked, fp_code, PCA_DIM=400, 
+    def __init__(self, df, features, property_used, target_mean, target_std, stacked, fp_code, now, PCA_DIM=400, 
                  rand_seeds=[0, 10, 20], train_grid = [.5, .6, .7, .8, .9], n_core=15):
+        self.now = now
         self.df = df
         self.rand_seeds = rand_seeds
         self.fp_code = fp_code
@@ -212,7 +210,7 @@ class FpDataSet:
         results_df, MODEL = trainTestSplit(self.df, train_pct, self.features, self.property_used,
                                                    self.target_mean, self.target_std, seed, self.remote_info,
                                                    self.stacked).makeResults()
-        save_fragment = '%s_code_%s_train_%s_seed_%s_%s' %(self.model_tag, self.fp_code, TRAIN_PCT, seed, now)
+        save_fragment = '%s_code_%s_train_%s_seed_%s_%s' %(self.model_tag, self.fp_code, TRAIN_PCT, seed, self.now)
         print("Save Results using Fragment %s" %save_fragment)
         results_df.to_csv('results_%s.csv' %save_fragment)
         try:
@@ -227,19 +225,6 @@ class FpDataSet:
             for seed in self.rand_seeds:
                 self.parallel_data.append((train_pct, seed))
         Parallel(n_jobs=self.n_core)(delayed(self.helper)(j) for j in self.parallel_data)
-#         for train_pct in self.train_grid:
-#             TRAIN_PCT = int(round(train_pct*100))
-#             for seed in self.rand_seeds:
-#                 results_df, MODEL = trainTestSplit(self.df, train_pct, self.features, self.property_used,
-#                                                   self.target_mean, self.target_std, seed, self.remote_info,
-#                                                   self.stacked).makeResults()
-#                 save_fragment = '%s_code_%s_train_%s_seed_%s_%s' %(self.model_tag, self.fp_code, TRAIN_PCT, seed, now)
-#                 print("Save Results using Fragment %s" %save_fragment)
-#                 results_df.to_csv('results_%s.csv' %save_fragment)
-#                 try:
-#                     MODEL.save_model('%s.xgb' %save_fragment)
-#                 except:
-#                     MODEL.save('%s.h5' %save_fragment,save_format='h5')
 
 class trainTestSplit:
     def __init__(self, df, train_pct, features, property_used, target_mean, target_std, seed, remote_info, stacked, 
@@ -248,18 +233,26 @@ class trainTestSplit:
         self.filenames = df['filename'].unique().tolist()
         self.n_samples = len(self.filenames)
         self.train_pct = train_pct
+        print('train_pct %s' %self.train_pct)
         self.seed = seed
         self.target_mean = target_mean
         self.target_std = target_std
         self.remote_info = remote_info
         self.pct_remote = self.train_pct - .5
+        print('pct_remote %s' %self.pct_remote)
         self.n_remote = round(self.n_samples*self.pct_remote)
+        print('n_remote %s' %self.n_remote)
         self.n_train = round(self.n_samples*self.train_pct)
+        print('n_train %s' %self.n_train)
         self.n_random = self.n_train - self.n_remote
+        print('n_random %s' %self.n_random)
         self.stacked = stacked
         self.features = features
         self.property_used = property_used
         self.hp_frac = hp_frac
+        if stacked:
+            self.hp_frac = .05
+        print('hp_frac %s' %self.hp_frac)
         self.n_trees = n_trees
 
         if self.stacked:
@@ -307,6 +300,7 @@ class trainTestSplit:
                     test_files, test_pressures), train_label, test_label
         
     def hp_opt(self):
+        start = time.time()
         if self.algo == 'nn':
             self.max_batch = 512
             if self.max_batch > self.n_train:
@@ -328,8 +322,11 @@ class trainTestSplit:
             
         hp_df = self.df.sample(frac=self.hp_frac, random_state=self.seed)
         hp_remote_info = [x for x in self.remote_info if x[1] in hp_df['filename'].tolist()]
-        return HPOpt(hp_df, self.train_pct, self.features, self.property_used, self.target_mean, 
+        opt_hps = HPOpt(hp_df, self.train_pct, self.features, self.property_used, self.target_mean, 
                             self.target_std, self.seed, hp_remote_info, self.stacked, self.space).get_params()
+        end = time.time()
+        print("Time Elapsed during HPOpt: %s" %(end-start) )
+        return opt_hps
     
     def run_model(self):
         self.params = self.hp_opt()
@@ -383,8 +380,12 @@ class HPOpt:
         self.target_mean = target_mean
         self.target_std = target_std
         self.n_trees = n_trees
-        self.N_CALLS = 75
+        if stacked:
+            self.N_CALLS = 40
+        else:
+            self.N_CALLS = 75
         
+        print("Using %s calls for HPOpt" %self.N_CALLS)
         
         if self.stacked:
             self.algo = 'nn'
@@ -413,10 +414,10 @@ class HPOpt:
 
 # Run
 
-global now
-now = datetime.datetime.now().strftime("%I_%M%p_on_%B_%d_%Y")
-hmofMLdataset('/data/rgur/efrc/ml/results/', 
-                   SI_grav_data_path='/data/rgur/efrc/prep_data/all_v1/ml_data.csv', 
-                 SD_grav_data_path='/data/rgur/efrc/prep_data/all_no_norm/ml_data.csv',SI_stacked_path=
-                '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
-                 SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv', skip=['10000', '11000', '01000', '10100', '11100', '01100', '10010', '11010', '01010', '10110', '11110', '01110'], n_core=15).makeAllResults()
+# global now
+# now = datetime.datetime.now().strftime("%I_%M%p_on_%B_%d_%Y")
+# hmofMLdataset('/data/rgur/efrc/ml/results/', 
+#                    SI_grav_data_path='/data/rgur/efrc/prep_data/all_v1/ml_data.csv', 
+#                  SD_grav_data_path='/data/rgur/efrc/prep_data/all_no_norm/ml_data.csv',SI_stacked_path=
+#                 '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
+#                  SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv', skip=['10000', '11000', '01000', '10100', '11100', '01100', '10010', '11010', '01010', '10110', '11110', '01110', '10001'], n_core=15).makeAllResults()
