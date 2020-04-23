@@ -10,8 +10,10 @@ import pandas as pd
 import os
 import tensorflow as tf
 from tensorflow import keras
+import tensorflow.keras.backend as K
+#K.clear_session()
 from tensorflow.keras import layers
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 import matplotlib.pyplot as plt
 import seaborn as sns
 import tensorflow_docs as tfdocs
@@ -479,6 +481,7 @@ def alter_dtype(train_df, test_df, property_used, n_core, algo, features):
         return (train_fp, train_label.to_numpy()), (test_fp, test_label.to_numpy()), train_label, test_label
 
 def build_model(n_features, lr, h_units, ACTIVATION):
+    #x = tf.placeholder('float', shape = [None, n_features])
     model = keras.Sequential([
         layers.Dense(h_units, activation='relu', input_shape=[n_features]), #default is 100
         #layers.Dense(100, activation='relu'), #default is not exist

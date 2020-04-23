@@ -9,15 +9,15 @@ import numpy as np
 from os import path
 import pandas as pd 
 import os
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+#import tensorflow as tf
+#from tensorflow import keras
+#from tensorflow.keras import layers
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 import matplotlib.pyplot as plt
 import seaborn as sns
-import tensorflow_docs as tfdocs
-import tensorflow_docs.plots
-import tensorflow_docs.modeling
+#import tensorflow_docs as tfdocs
+#import tensorflow_docs.plots
+#import tensorflow_docs.modeling
 import matplotlib.pyplot as plt
 from matplotlib import rc
 from matplotlib import rcParams
