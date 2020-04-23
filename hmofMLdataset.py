@@ -31,7 +31,7 @@ from sklearn import preprocessing
 from sklearn.decomposition import PCA
 import sys
 from sklearn.metrics import r2_score as r2
-from rdkit import Chem
+#from rdkit import Chem
 from sklearn.decomposition import PCA
 
 import importlib
