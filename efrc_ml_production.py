@@ -251,8 +251,14 @@ def prepToSplit(algo, cat_si_sd, SD_ML_DATA_PATH, SI_ML_DATA_PATH, start_str_sd,
     print('Total frac equals %s' %total_frac)
     
     if cat_si_sd:
-        ml_data_sd = pd.read_csv(SD_ML_DATA_PATH)
-        ml_data_si = pd.read_csv(SI_ML_DATA_PATH)
+        try:
+            ml_data_sd = pd.read_csv(SD_ML_DATA_PATH)
+        except:
+            ml_data_sd = pd.read_csv(SD_ML_DATA_PATH, compression='gzip')
+        try:
+            ml_data_si = pd.read_csv(SI_ML_DATA_PATH)
+        except:
+            ml_data_si = pd.read_csv(SI_ML_DATA_PATH, compression='gzip')
 
         ml_data_si.columns = [col+'_si' for col in ml_data_si.columns]
         si_cols = ml_data_si.keys().tolist()
