@@ -9,15 +9,15 @@ import numpy as np
 from os import path
 import pandas as pd 
 import os
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+#import tensorflow as tf
+#from tensorflow import keras
+#from tensorflow.keras import layers
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 import matplotlib.pyplot as plt
 import seaborn as sns
-import tensorflow_docs as tfdocs
-import tensorflow_docs.plots
-import tensorflow_docs.modeling
+#import tensorflow_docs as tfdocs
+#import tensorflow_docs.plots
+#import tensorflow_docs.modeling
 import matplotlib.pyplot as plt
 from matplotlib import rc
 from matplotlib import rcParams
@@ -31,7 +31,7 @@ from sklearn import preprocessing
 from sklearn.decomposition import PCA
 import sys
 from sklearn.metrics import r2_score as r2
-from rdkit import Chem
+#from rdkit import Chem
 from sklearn.decomposition import PCA
 
 import importlib
@@ -48,7 +48,7 @@ class hmofMLdataset:
                 '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
                  SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv',
                  Y_DATA_PATH='/data/rgur/efrc/data_DONOTTOUCH/hMOF_allData_March25_2013.xlsx', n_core=15, skip=[], 
-                 job_dict=None):
+                 job_dict=None, nn_space=None):
         self.results_dir = results_dir
         os.chdir(self.results_dir)
         self.SI_grav_data_path = SI_grav_data_path
@@ -81,6 +81,7 @@ class hmofMLdataset:
         print("There are %s unique feature codes" %len(set(self.feature_codes)))
         self.now = now
         print("now is %s" %self.now)
+        self.nn_space = nn_space
         
     
     def makeMasterDFs(self):
@@ -115,13 +116,19 @@ class hmofMLdataset:
         non_pg = ml.getNonPGcolNames(size_fp, stacked, not geo_fp, self.cat_col_names)
         pg = []
         if si:
-            si_df = pd.read_csv(self.SI_grav_data_path)
+            try:
+                si_df = pd.read_csv(self.SI_grav_data_path)
+            except:
+                si_df = pd.read_csv(self.SI_grav_data_path, compression='gzip')
             self.all_pg = [s for s in ml.getPGcolNames(si_df, start_str=self.start_str_si, end_str=self.end_str_si)]
             pg += [s+'_si' for s in ml.getPGcolNames(si_df, start_str=self.start_str_si, end_str=self.end_str_si) 
                    if s+'_si' in self.grav_all_features]
             del si_df
         if sd:
-            sd_df = pd.read_csv(self.SD_grav_data_path)
+            try:
+                sd_df = pd.read_csv(self.SD_grav_data_path)
+            except:
+                sd_df = pd.read_csv(self.SD_grav_data_path, compression='gzip')
             pg += [s for s in ml.getPGcolNames(sd_df, self.grav_start_str_sd, self.grav_end_str_sd) if s in
                   self.grav_all_features]
         return non_pg + pg    
@@ -145,7 +152,8 @@ class hmofMLdataset:
                     drop_features = [s for s in self.iso_all_features if s not in run_features]
                     #l.append(self.iso.drop(drop_features, axis=1))
                     FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-                              self.iso_target_mean, self.iso_target_std, now=self.now, stacked=STACKED, fp_code=CODE, n_core=1, 
+                              self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, stacked=STACKED,
+                              fp_code=CODE, n_core=1, 
                               rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
                 else:
                     print("Running code %s for gravimetric uptake model" %CODE)
@@ -155,7 +163,7 @@ class hmofMLdataset:
                                          rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
        
 class FpDataSet:
-    def __init__(self, df, features, property_used, target_mean, target_std, stacked, fp_code, now, PCA_DIM=400, 
+    def __init__(self, df, features, property_used, target_mean, target_std, stacked, fp_code, now, nn_space, PCA_DIM=400, 
                  rand_seeds=[0, 10, 20], train_grid = [.5, .6, .7, .8, .9], n_core=15):
         self.now = now
         self.df = df
@@ -176,6 +184,7 @@ class FpDataSet:
             self.algo = 'xgb'
             self.model_tag = 'grav'
         self.train_grid = train_grid
+        self.nn_space = nn_space
     
     def sortRemoteInds(self):
         '''
@@ -209,7 +218,7 @@ class FpDataSet:
         TRAIN_PCT = int(round(train_pct*100))
         results_df, MODEL = trainTestSplit(self.df, train_pct, self.features, self.property_used,
                                                    self.target_mean, self.target_std, seed, self.remote_info,
-                                                   self.stacked).makeResults()
+                                                   self.stacked, self.nn_space).makeResults()
         save_fragment = '%s_code_%s_train_%s_seed_%s_%s' %(self.model_tag, self.fp_code, TRAIN_PCT, seed, self.now)
         print("Save Results using Fragment %s" %save_fragment)
         results_df.to_csv('results_%s.csv' %save_fragment)
@@ -227,25 +236,25 @@ class FpDataSet:
         Parallel(n_jobs=self.n_core)(delayed(self.helper)(j) for j in self.parallel_data)
 
 class trainTestSplit:
-    def __init__(self, df, train_pct, features, property_used, target_mean, target_std, seed, remote_info, stacked, 
+    def __init__(self, df, train_pct, features, property_used, target_mean, target_std, seed, remote_info, stacked, nn_space,
                  hp_frac=.1, n_trees=5000):
         self.df = df
         self.filenames = df['filename'].unique().tolist()
         self.n_samples = len(self.filenames)
         self.train_pct = train_pct
-        print('train_pct %s' %self.train_pct)
+        #print('train_pct %s' %self.train_pct)
         self.seed = seed
         self.target_mean = target_mean
         self.target_std = target_std
         self.remote_info = remote_info
         self.pct_remote = self.train_pct - .5
-        print('pct_remote %s' %self.pct_remote)
+        #print('pct_remote %s' %self.pct_remote)
         self.n_remote = round(self.n_samples*self.pct_remote)
-        print('n_remote %s' %self.n_remote)
+        #print('n_remote %s' %self.n_remote)
         self.n_train = round(self.n_samples*self.train_pct)
-        print('n_train %s' %self.n_train)
+        #print('n_train %s' %self.n_train)
         self.n_random = self.n_train - self.n_remote
-        print('n_random %s' %self.n_random)
+        #print('n_random %s' %self.n_random)
         self.stacked = stacked
         self.features = features
         self.property_used = property_used
@@ -254,6 +263,7 @@ class trainTestSplit:
             self.hp_frac = .05
         print('hp_frac %s' %self.hp_frac)
         self.n_trees = n_trees
+        self.nn_space = nn_space
 
         if self.stacked:
             self.algo = 'nn'
@@ -305,14 +315,20 @@ class trainTestSplit:
             self.max_batch = 512
             if self.max_batch > self.n_train:
                 self.max_batch = self.n_train // 2
-            self.space = [(100, 400), #n_units
-                    (.0005, .003),#learning rate
-                    (2, 15), #patience
-                    (12, self.max_batch), #batch size
-                    (.01, .6)] #validation split
-            
+            if self.nn_space == None:
+                self.space = [(100, 400), #n_units
+                (.0005, .003),#learning rate
+                (2, 15), #patience
+                (12, self.max_batch), #batch size
+                (.01, .6)] #validation split
+            else:
+                self.space = self.nn_space #0:n_units, 1:learning rate, 2:patience, 3:batch size, 4:validation split
+                self.min_batch = self.space[3][0]
+                if self.min_batch > self.max_batch:
+                    self.min_batch = self.max_batch // 2
+                self.space[3] = (self.min_batch, self.max_batch)
         else:
-            self.max_depth_ub = 15
+            self.max_depth_ub = 15 #max depth upper bound
             if self.n_train < 200:
                 self.max_depth_ub = 4
             self.space = [(.3, .95), #colsample_bytree
@@ -320,6 +336,7 @@ class trainTestSplit:
                             (2, 15), #max_depth
                             (1, 20)] #alpha
             
+        print("Space is %s" %self.space)
         hp_df = self.df.sample(frac=self.hp_frac, random_state=self.seed)
         hp_remote_info = [x for x in self.remote_info if x[1] in hp_df['filename'].tolist()]
         opt_hps = HPOpt(hp_df, self.train_pct, self.features, self.property_used, self.target_mean, 
@@ -403,9 +420,8 @@ class HPOpt:
         HP_TTS = trainTestSplit(self.df, self.train_pct, 
                                                         self.features, self.property_used, self.target_mean,
                                                         self.target_std, self.seed, self.remote_info, 
-                                                        self.stacked)
+                                                        self.stacked, nn_space=None)
         self.train_d, self.test_d, self.train_label, self.test_label = HP_TTS.split()
-        defects = []
         start = time.time()
         r = gp_minimize(self.objective, self.space, n_calls=self.N_CALLS, random_state=self.seed)
         end = time.time()

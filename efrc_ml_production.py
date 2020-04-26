@@ -10,8 +10,10 @@ import pandas as pd
 import os
 import tensorflow as tf
 from tensorflow import keras
+import tensorflow.keras.backend as K
+#K.clear_session()
 from tensorflow.keras import layers
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 import matplotlib.pyplot as plt
 import seaborn as sns
 import tensorflow_docs as tfdocs
@@ -249,8 +251,14 @@ def prepToSplit(algo, cat_si_sd, SD_ML_DATA_PATH, SI_ML_DATA_PATH, start_str_sd,
     print('Total frac equals %s' %total_frac)
     
     if cat_si_sd:
-        ml_data_sd = pd.read_csv(SD_ML_DATA_PATH)
-        ml_data_si = pd.read_csv(SI_ML_DATA_PATH)
+        try:
+            ml_data_sd = pd.read_csv(SD_ML_DATA_PATH)
+        except:
+            ml_data_sd = pd.read_csv(SD_ML_DATA_PATH, compression='gzip')
+        try:
+            ml_data_si = pd.read_csv(SI_ML_DATA_PATH)
+        except:
+            ml_data_si = pd.read_csv(SI_ML_DATA_PATH, compression='gzip')
 
         ml_data_si.columns = [col+'_si' for col in ml_data_si.columns]
         si_cols = ml_data_si.keys().tolist()
@@ -479,6 +487,7 @@ def alter_dtype(train_df, test_df, property_used, n_core, algo, features):
         return (train_fp, train_label.to_numpy()), (test_fp, test_label.to_numpy()), train_label, test_label
 
 def build_model(n_features, lr, h_units, ACTIVATION):
+    #x = tf.placeholder('float', shape = [None, n_features])
     model = keras.Sequential([
         layers.Dense(h_units, activation='relu', input_shape=[n_features]), #default is 100
         #layers.Dense(100, activation='relu'), #default is not exist
