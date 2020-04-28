@@ -13,7 +13,13 @@ from tensorflow import keras
 import tensorflow.keras.backend as K
 #K.clear_session()
 from tensorflow.keras import layers
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
+#ensure that not all of GPU is used
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allow_growth=True
+sess = tf.compat.v1.Session(config=config)
+
+#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 import matplotlib.pyplot as plt
 import seaborn as sns
 import tensorflow_docs as tfdocs
