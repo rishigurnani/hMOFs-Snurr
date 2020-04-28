@@ -66,6 +66,7 @@ class hmofMLdataset:
         self.iso_end_str_sd = 'norm_Dom._Pore_(ang.)'
         self.grav_start_str_sd = 'CH4_v/v_248_bar'
         self.grav_end_str_sd = 'norm_Dom._Pore_(ang.)'
+        self.start_str_si = 'filename'
         self.end_str_si = 'valence_pa'
         self.cat_col_names = ['cat_1', 'cat_2', 'cat_3', 'cat_4']
         self.skip = skip
