@@ -9,5 +9,4 @@ parser.add_argument("--address", type=str, help='Email address to notify', defau
 
 args = parser.parse_args()
 
-os.system('efrc')
 os.system('%s && echo "Subject:%s" | sendmail %s' %(args.command, args.subject, args.address) )

@@ -517,7 +517,7 @@ def build_model(n_features, lr, h_units, ACTIVATION):
         metrics=['mae', 'mse'])
     return model
     
-def run_model(algo, train_d, n_trees, params=None, n_core=None):
+def run_model(algo, train_d, n_trees, params=None, n_core=None, chkpt_name='model_checkpoint'):
     
     start = time.time()
     if algo == 'xgb':
@@ -566,7 +566,7 @@ def run_model(algo, train_d, n_trees, params=None, n_core=None):
 
         # The patience parameter is the amount of epochs to check for improvement
         early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=patience)
-        checkpoint_callbacks = keras.callbacks.ModelCheckpoint(filepath='model_checkpoint.h5', monitor='val_loss',\
+        checkpoint_callbacks = keras.callbacks.ModelCheckpoint(filepath='%s.h5' %chkpt_name, monitor='val_loss',\
                                                               verbose=1, save_best_only=True, mode='min')
 
         log_dir="logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
