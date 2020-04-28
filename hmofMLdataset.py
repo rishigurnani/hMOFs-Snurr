@@ -151,14 +151,18 @@ class hmofMLdataset:
                 if STACKED:
                     print("Running code %s for isotherm model" %CODE)
                     drop_features = [s for s in self.iso_all_features if s not in run_features]
-                    #l.append(self.iso.drop(drop_features, axis=1))
-                    FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-                              self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, stacked=STACKED,
-                              fp_code=CODE, n_core=1, 
-                              rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
+                    algo = 'nn'
                 else:
                     print("Running code %s for gravimetric uptake model" %CODE)
+                    algo = self.grav_algo
                     drop_features = [s for s in self.grav_all_features if s not in run_features]
+                    #l.append(self.iso.drop(drop_features, axis=1))
+                if algo == 'nn':
+                    FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
+                              self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, stacked=STACKED,
+                              fp_code=CODE, n_core=1, grav_algo=self.grav_algo, 
+                              rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
+                else:
                     FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
                               self.grav_target_mean, self.grav_target_std, now=self.now, stacked=STACKED, fp_code=CODE,
                               rand_seeds=SEEDS, train_grid=TRAIN_GRID, nn_space=self.nn_space, 
@@ -221,7 +225,8 @@ class FpDataSet:
         TRAIN_PCT = int(round(train_pct*100))
         results_df, MODEL = trainTestSplit(self.df, train_pct, self.features, self.property_used,
                                                    self.target_mean, self.target_std, seed, self.remote_info,
-                                                   self.stacked, self.nn_space, grav_algo=self.grav_algo).makeResults()
+                                                   self.stacked, self.nn_space, self.now, 
+                                                   grav_algo=self.grav_algo).makeResults()
         save_fragment = '%s_code_%s_train_%s_seed_%s_%s' %(self.model_tag, self.fp_code, TRAIN_PCT, seed, self.now)
         print("Save Results using Fragment %s" %save_fragment)
         results_df.to_csv('results_%s.csv' %save_fragment, compression='gzip')
@@ -240,7 +245,7 @@ class FpDataSet:
 
 class trainTestSplit:
     def __init__(self, df, train_pct, features, property_used, target_mean, target_std, seed, remote_info, stacked, nn_space,
-                 hp_frac=.1, n_trees=5000, grav_algo='xgb'):
+                 now, hp_frac=.1, n_trees=5000, grav_algo='xgb'):
         self.df = df
         self.filenames = df['filename'].unique().tolist()
         self.n_samples = len(self.filenames)
@@ -263,6 +268,7 @@ class trainTestSplit:
         self.property_used = property_used
         self.hp_frac = hp_frac
         self.grav_algo = grav_algo
+        self.now = now
         if stacked:
             self.hp_frac = .05
         print('hp_frac %s' %self.hp_frac)
@@ -348,7 +354,7 @@ class trainTestSplit:
         hp_df = self.df.sample(frac=self.hp_frac, random_state=self.seed)
         hp_remote_info = [x for x in self.remote_info if x[1] in hp_df['filename'].tolist()]
         opt_hps = HPOpt(hp_df, self.train_pct, self.features, self.property_used, self.target_mean, 
-                            self.target_std, self.seed, hp_remote_info, self.stacked, self.space, 
+                            self.target_std, self.seed, hp_remote_info, self.stacked, self.space, self.now,
                             grav_algo=self.grav_algo).get_params()
         end = time.time()
         print("Time Elapsed during HPOpt: %s" %(end-start) )
@@ -358,7 +364,8 @@ class trainTestSplit:
         self.params = self.hp_opt()
         self.train_d, self.test_d, self.train_label, self.test_label = self.split()
         print('Algo for run_model is %s' %self.algo)
-        self.MODEL = ml.run_model(self.algo, self.train_d, self.n_trees, self.params)
+        self.MODEL = ml.run_model(self.algo, self.train_d, self.n_trees, self.params, 
+                                  chkpt_name='model_checkpoint_%s' %self.now)
         
         
     def makeResults(self):
@@ -399,7 +406,7 @@ class trainTestSplit:
 
 class HPOpt:
     def __init__(self, df, train_pct, features, property_used, target_mean, target_std, seed, remote_info, stacked, 
-                 space, n_trees=50, grav_algo='xgb'):
+                 space, now, n_trees=50, grav_algo='xgb'):
         self.df = df
         self.seed = seed
         self.space = space
@@ -411,6 +418,7 @@ class HPOpt:
         self.target_std = target_std
         self.n_trees = n_trees
         self.grav_algo = grav_algo
+        self.now = now
         if stacked:
             self.N_CALLS = 40
             self.algo = 'nn'
@@ -422,7 +430,7 @@ class HPOpt:
         self.train_pct = train_pct
     
     def objective(self, params):
-        MODEL = ml.run_model(self.algo, self.train_d, self.n_trees, params)
+        MODEL = ml.run_model(self.algo, self.train_d, self.n_trees, params, chkpt_name='hp_model_checkpoint_%s' %self.now)
         return ml.model_rmse(MODEL, self.train_d, self.test_d, self.stacked, self.algo, self.target_mean, 
                              self.target_std, self.property_used, self.test_label, self.train_label, save=False, 
                              fname=None, subset_inds=None)
@@ -431,7 +439,7 @@ class HPOpt:
         HP_TTS = trainTestSplit(self.df, self.train_pct, 
                                                         self.features, self.property_used, self.target_mean,
                                                         self.target_std, self.seed, self.remote_info, 
-                                                        self.stacked, nn_space=None, grav_algo=self.grav_algo)
+                                                        self.stacked, nn_space=None, now=self.now, grav_algo=self.grav_algo)
         self.train_d, self.test_d, self.train_label, self.test_label = HP_TTS.split()
         start = time.time()
         r = gp_minimize(self.objective, self.space, n_calls=self.N_CALLS, random_state=self.seed)
