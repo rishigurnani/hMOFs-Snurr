@@ -2,6 +2,7 @@ import pandas as pd
 import sys
 import argparse
 import gzip
+import os
 
 def pd_load(path):
     try:
@@ -31,3 +32,11 @@ def count_lines(filename):
             n_lines = sum(1 for row in handle)
           
     return n_lines
+
+def write_list_to_file(l, path):
+    with open(path, "w") as outfile: 
+        outfile.write("\n".join(l))
+        
+def mkdir_existOk(path):
+    if not os.path.isdir(path):
+        os.makedirs(path)
