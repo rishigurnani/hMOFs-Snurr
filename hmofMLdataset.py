@@ -174,17 +174,6 @@ class hmofMLdataset:
                               stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo, 
                               rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
 
-#                 if algo == 'nn':
-#                     FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-#                               self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, stacked=STACKED,
-#                               fp_code=CODE, n_core=1, grav_algo=self.grav_algo, 
-#                               rand_seeds=SEEDS, train_grid=TRAIN_GRID).run()
-#                 else:
-#                     FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
-#                               self.grav_target_mean, self.grav_target_std, now=self.now, stacked=STACKED, fp_code=CODE,
-#                               rand_seeds=SEEDS, train_grid=TRAIN_GRID, nn_space=self.nn_space, 
-#                               grav_algo=self.grav_algo).run()
-       
 class FpDataSet:
     def __init__(self, df, features, property_used, target_mean, target_std, stacked, fp_code, now, nn_space, PCA_DIM=400, 
                  rand_seeds=[0, 10, 20], train_grid = [.5, .6, .7, .8, .9], n_core=15, grav_algo='xgb'):
@@ -247,10 +236,10 @@ class FpDataSet:
         save_fragment = '%s_code_%s_train_%s_seed_%s_%s' %(self.model_tag, self.fp_code, TRAIN_PCT, seed, self.now)
         print("Save Results using Fragment %s" %save_fragment)
         results_df.to_csv('results_%s.csv' %save_fragment, compression='gzip')
-#         try:
-#             MODEL.save_model('%s.xgb' %save_fragment)
-#         except:
-#             MODEL.save('%s.h5' %save_fragment,save_format='h5')
+        try:
+            MODEL.save_model('%s.xgb' %save_fragment)
+        except:
+            MODEL.save('%s.h5' %save_fragment,save_format='h5')
     def run(self):
         self.sortRemoteInds()
         self.results = []
@@ -379,8 +368,8 @@ class trainTestSplit:
     
     def run_model(self):
         self.params = self.hp_opt()
+        print("Optimzed Hyperparameters found: %s" %self.params)
         self.train_d, self.test_d, self.train_label, self.test_label = self.split()
-        print('Algo for run_model is %s' %self.algo)
         self.MODEL = ml.run_model(self.algo, self.train_d, self.n_trees, self.params, 
                                   chkpt_name='model_checkpoint_%s' %self.now)
         
@@ -440,7 +429,7 @@ class HPOpt:
             self.N_CALLS = 40
             self.algo = 'nn'
         else:
-            self.N_CALLS = 75
+            self.N_CALLS = 125
             self.algo = self.grav_algo
         
         print("Using %s calls for HPOpt" %self.N_CALLS)
