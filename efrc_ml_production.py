@@ -14,11 +14,6 @@ import tensorflow.keras.backend as K
 #K.clear_session()
 from tensorflow.keras import layers
 
-#ensure that not all of GPU is used
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.allow_growth=True
-sess = tf.compat.v1.Session(config=config)
-
 #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -524,7 +519,11 @@ def build_model(n_features, lr, h_units, ACTIVATION):
     return model
     
 def run_model(algo, train_d, n_trees, params=None, n_core=None, chkpt_name='model_checkpoint'):
-    
+    #ensure that not all of GPU is used
+    config = tf.compat.v1.ConfigProto()
+    config.gpu_options.allow_growth=True
+    sess = tf.compat.v1.Session(config=config)
+
     start = time.time()
     if algo == 'xgb':
         print("Number of trees: %s" %n_trees)

@@ -363,7 +363,6 @@ class trainTestSplit:
     def run_model(self):
         self.params = self.hp_opt()
         self.train_d, self.test_d, self.train_label, self.test_label = self.split()
-        print('Algo for run_model is %s' %self.algo)
         self.MODEL = ml.run_model(self.algo, self.train_d, self.n_trees, self.params, 
                                   chkpt_name='model_checkpoint_%s' %self.now)
         
