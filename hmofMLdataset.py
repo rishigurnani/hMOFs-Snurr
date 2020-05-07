@@ -33,6 +33,7 @@ import sys
 from sklearn.metrics import r2_score as r2
 #from rdkit import Chem
 from sklearn.decomposition import PCA
+import rishi_utils as ru
 
 import importlib
 import efrc_ml_production as ml
@@ -441,7 +442,6 @@ class HPOpt:
         return ml.model_rmse(MODEL, self.train_d, self.test_d, self.stacked, self.algo, self.target_mean, 
                              self.target_std, self.property_used, self.test_label, self.train_label, save=False, 
                              fname=None, subset_inds=None)
-    
     def get_params(self):
         HP_TTS = trainTestSplit(self.df, self.train_pct, 
                                                         self.features, self.property_used, self.target_mean,
@@ -449,7 +449,7 @@ class HPOpt:
                                                         self.stacked, nn_space=None, now=self.now, grav_algo=self.grav_algo)
         self.train_d, self.test_d, self.train_label, self.test_label = HP_TTS.split()
         start = time.time()
-        r = gp_minimize(self.objective, self.space, n_calls=self.N_CALLS, random_state=self.seed)
+        r = gp_minimize(self.cv_objective, self.space, n_calls=self.N_CALLS, random_state=self.seed)
         end = time.time()
         self.params = r.x
         return self.params
