@@ -142,3 +142,83 @@ def str2bool(s):
         return True
     else:
         raise ValueError("cannot convert string")
+
+
+# Tanimoto similarity function over Morgan fingerprint
+def similarity(a, b):
+
+    import rdkit
+    from rdkit import Chem, DataStructs
+    from rdkit.Chem import AllChem
+    if a is None or b is None:
+        return 0.0
+    amol = Chem.MolFromSmiles(a)
+    bmol = Chem.MolFromSmiles(b)
+    if amol is None or bmol is None:
+        return 0.0
+    fp1 = AllChem.GetMorganFingerprintAsBitVect(amol, 2, nBits=2048, useChirality=False)
+    fp2 = AllChem.GetMorganFingerprintAsBitVect(bmol, 2, nBits=2048, useChirality=False)
+    return DataStructs.TanimotoSimilarity(fp1, fp2)
+
+def symmetrize(a):
+    """
+    Return a symmetrized version of NumPy array a.
+
+    Values 0 are replaced by the array value at the symmetric
+    position (with respect to the diagonal), i.e. if a_ij = 0,
+    then the returned array a' is such that a'_ij = a_ji.
+
+    Diagonal values are left untouched.
+
+    a -- square NumPy array, such that a_ij = 0 or a_ji = 0, 
+    for i != j.
+    """
+    return a + a.T - np.diag(a.diagonal())
+
+def struct_uniqueness(l):
+    '''
+    Find the structural uniqueness of each polymer in a list of polymers
+    '''
+    mat = np.zeros((len(l), len(l)))
+    for ind1,i in enumerate(l):
+        for ind2,j in enumerate(l):
+            if i<j:
+                mat[ind1][ind2] = similarity(i,j)
+    mat = symmetrize(mat)
+    return np.subtract(np.ones(len(l)), np.max(mat, axis=0))
+
+def tf_make_dataset(X_data,y_data,n_splits):
+    import tensorflow as tf
+    def gen():
+        for train_index, test_index in KFold(n_splits).split(X_data):
+            X_train, X_test = X_data[train_index], X_data[test_index]
+            y_train, y_test = y_data[train_index], y_data[test_index]
+            yield X_train,y_train,X_test,y_test
+
+    return tf.data.Dataset.from_generator(gen, (tf.float64,tf.float64,tf.float64,tf.float64))
+
+from urllib.request import urlopen
+
+def CIRconvert(ids):
+    from urllib.request import urlopen
+    try:
+        url = 'http://cactus.nci.nih.gov/chemical/structure/' + ids + '/smiles'
+        ans = urlopen(url).read().decode('utf8')
+        return ans
+    except:
+        return 'Did not work'
+
+def smiles_rxn1(s):
+    '''
+    Turn molecules smile into polymers!
+    '''
+    monomers = s.split('.')
+    m1 = monomers[1].replace('Cl', '', 1)
+    m1 = m1.replace('Cl', '[*]')
+    m0 = monomers[0]
+    Os = ru.getIndexPositions(m0, 'O')
+    if Os[0] == 0:
+        add = 0
+    else:
+        add = 1
+    return m0[:Os[0]+add]+'[*]'+m0[Os[0]+add:Os[1]+1]+m1+m0[Os[1]+1:]
