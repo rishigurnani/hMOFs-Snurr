@@ -261,8 +261,9 @@ class trainTestSplit:
         self.target_mean = target_mean
         self.target_std = target_std
         self.remote_info = remote_info
-        self.pct_remote = self.train_pct - .5
-        #print('pct_remote %s' %self.pct_remote)
+        #self.pct_remote = self.train_pct - .5
+        self.pct_remote = 0
+        print('pct_remote %s' %self.pct_remote)
         self.n_remote = round(self.n_samples*self.pct_remote)
         #print('n_remote %s' %self.n_remote)
         self.n_train = round(self.n_samples*self.train_pct)
