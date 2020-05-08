@@ -9,6 +9,7 @@ from os import path
 import pandas as pd 
 import os
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 from tensorflow import keras
 import tensorflow.keras.backend as K
 #K.clear_session()
@@ -617,7 +618,7 @@ def model_rmse(model, train_d, test_d, stacked, algo, target_mean, target_std, p
     
     return rmse #lower is better
 
-def unscale(property_name, test_predictions, train_predictions, test_label, train_label, target_mean, target_std):
+def unscale(test_predictions, train_predictions, test_label, train_label, target_mean, target_std):
     '''
     Undo the scaling on predictions of test set, labels of test set, labels of training set
     '''

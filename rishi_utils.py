@@ -49,6 +49,9 @@ def pass_argparse_list(l):
     return ' '.join(l)
 
 def set_repl(s, sub, repl, ns):
+    '''
+    Replace a set of specific instances
+    '''
     if any([i > s.count(sub) for i in ns]):
         raise ValueError('Too many replacement indices given')
     ns = sorted(ns)
@@ -69,7 +72,7 @@ def set_repl(s, sub, repl, ns):
 
 def all_positions(len_list, n_ones):
     '''
-    Return list of all unique positions where n
+    Return list of all unique combinations where n ones can arranged with len_list positions
     '''
     tup_zero_ind = list(itertools.combinations(range(len_list), n_ones))
     return [[i+1 for i in tup] for tup in tup_zero_ind]
@@ -196,8 +199,6 @@ def tf_make_dataset(X_data,y_data,n_splits):
             yield X_train,y_train,X_test,y_test
 
     return tf.data.Dataset.from_generator(gen, (tf.float64,tf.float64,tf.float64,tf.float64))
-
-from urllib.request import urlopen
 
 def CIRconvert(ids):
     from urllib.request import urlopen
