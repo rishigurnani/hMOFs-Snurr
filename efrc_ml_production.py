@@ -11,6 +11,8 @@ import os
 import tensorflow as tf
 tf.compat.v1.enable_eager_execution()
 from tensorflow import keras
+from keras.backend import manual_variable_initialization 
+manual_variable_initialization(True)
 import tensorflow.keras.backend as K
 #K.clear_session()
 from tensorflow.keras import layers
@@ -38,6 +40,7 @@ from rdkit import Chem
 from sklearn.decomposition import PCA
 from joblib import Parallel, delayed
 from multiprocessing import Pool
+import rishi_utils as ru
 
 #following must be defined
 # algo = 'xgb' #am I using XGBoost (xgb) or Neural Nets (nn)?
@@ -348,6 +351,9 @@ def prepToSplit(algo, cat_si_sd, SD_ML_DATA_PATH, SI_ML_DATA_PATH, start_str_sd,
     ml_data = merge_data(ml_data, stacked, Y_DATA_PATH)
 
     target_mean, target_std, property_used = prepare_target(ml_data, stacked)
+    n_inst = len(ml_data)
+    ml_data['mean_%s'%property_used] = [target_mean]*n_inst
+    ml_data['std_%s'%property_used] = [target_std]*n_inst
     ml_data = delMissing(ml_data, property_used)
     addCat(ml_data, cat_col_names)
 
@@ -694,3 +700,78 @@ def parity_plot(model, train_d, test_d, stacked, algo, target_mean, target_std, 
 
 def getTime():
     return datetime.datetime.now().strftime("%I:%M%p_on_%B_%d_%Y")
+
+def shap_mat(model, data, model_type):
+    import shap
+    start = time.time()
+    if model_type == 'xgb':
+        explainer = shap.TreeExplainer(model)
+    elif model_type == 'nn':
+        explainer = shap.DeepExplainer(model,data)
+    shap_values = explainer.shap_values(data)
+    end = time.time()
+    print("Time elapsed to create shap values: %s" %(end-start))
+    return shap_values
+
+def shap_save(path_to_df, results_path, model_path, features, sample_frac, save_path_shap, save_path_sample, model_type):
+    '''
+    Save ShapDF and return shap vals
+    '''
+    import shap
+    df = ru.pd_load(path_to_df)
+    results = ru.pd_load(results_path)
+    if model_type=='nn':
+        model = tf.keras.models.load_model(model_path)
+    drop_cols = [col for col in df.keys() if 'Unnamed' in col]
+    train_fn = results[results['Class']=='Train']['Filename'].unique()
+    sample_train_df = df[df['filename'].isin(train_fn)].reset_index().drop('index', axis=1).sample(frac=sample_frac, random_state=12)
+    sample_train_df.to_csv(save_path_sample, compression='gzip')
+    shap_vals = shap_mat(model, sample_train_df[features].to_numpy(), 'nn')
+    #save shap_vals
+    shap_df = pd.DataFrame(data=shap_vals[0], columns=features)
+    shap_df['filename'] = sample_train_df['filename'].tolist()
+    shap_df.to_csv(save_path_shap, compression='gzip')
+    return shap_vals
+        
+def shap_change_names(s):
+    d = {'norm_Void_Fraction':'Void Fraction',
+    'norm_Surf._Area_(m2/g)':'Surface Area',
+    'norm_Density':'Density',
+     'Mefp_norm_mol_wt_si':'Norm_mol_wt',
+     'Mmfp_MQNs26_si':'Norm_MQNs26',
+     'norm_Mmfp_Chi1n': 'Chi1n',
+     'norm_Vol._Surf._Area': 'Volumetric Surface Area',
+     'oh_1': 'Cat_1',
+     'norm_Max._Pore_(ang.)': 'Max Pore Diameter',
+     'norm_Dom._Pore_(ang.)': 'Dominant Pore Diameter',
+     'norm_atomic_rad_pa_(angstroms)': 'Atomic_rad',
+     'norm_log_pressure': 'Pressure'
+    }
+    try:
+        return d[s]
+    except:
+        if s[:5] == 'norm_':
+            s = s[5:]
+        if s[-3:] == '_si':
+            s = 'norm_' + s[:-3]
+        if 'Mefp_' in s:
+            s = s.replace('Mefp_', '')
+        if 'Mmfp_' in s:
+            s = s.replace('Mmfp_', '')
+        if 'Mafp_' in s:
+            s = s.replace('Mafp_', '')
+        if s[-3:] == '_pa':
+            s = s[:-3]
+        s=s.capitalize()
+        return s
+
+def shap_df_to_mat(df, drop_columns=[]):
+    '''
+    In: SHAP DF
+    Out: SHAP matrix and features with specified feature columns removed
+    '''
+    if type(drop_columns)==str:
+        drop_columns = [drop_columns]
+    drop_columns += ['filename']
+    drop_columns += [col for col in df.keys().tolist() if 'Unnamed' in col]
+    return df.drop(drop_columns, axis=1).to_numpy(), [f for f in df.keys().tolist() if f not in drop_columns]

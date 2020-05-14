@@ -63,7 +63,7 @@ class hmofMLdataset:
                 '/data/rgur/efrc/prep_data/all_v1/stacked.csv',
                  SD_stacked_path='/data/rgur/efrc/prep_data/all_no_norm/stacked.csv',
                  Y_DATA_PATH='/data/rgur/efrc/data_DONOTTOUCH/hMOF_allData_March25_2013.xlsx', n_core=15, skip=None, 
-                 do=None, nn_space=None, grav_algo='xgb'):
+                 do=None, nn_space=None, grav_algo='xgb', predefined_splits=False, only_save_features=False):
         self.results_dir = results_dir 
         os.chdir(self.results_dir)
         self.SI_grav_data_path = SI_grav_data_path
@@ -99,6 +99,9 @@ class hmofMLdataset:
         print("now is %s" %self.now)
         self.nn_space = nn_space
         self.grav_algo = grav_algo
+        self.predefined_splits = predefined_splits
+        self.only_save_features = only_save_features
+        
     def makeMasterDFs(self):
         #gravimetric
         self.grav, self.grav_prop, self.grav_target_mean, self.grav_target_std, self.grav_all_features = \
@@ -157,30 +160,36 @@ class hmofMLdataset:
                 STACKED = bool(int(i[-1])) #True (=1) if stacked
                 CODE = i[:-1]
                 run_features = self.select_features(code=CODE, stacked=STACKED)
-                if STACKED:
-                    print("Running code %s for isotherm model" %CODE)
-                    drop_features = [s for s in self.iso_all_features if s not in run_features]
-                    algo = 'nn'
-                else:
-                    print("Running code %s for gravimetric uptake model" %CODE)
-                    algo = self.grav_algo
-                    drop_features = [s for s in self.grav_all_features if s not in run_features]
-                    #l.append(self.iso.drop(drop_features, axis=1))
-                if algo == 'nn':
-                    N_CORE=1
-                else:
-                    N_CORE=self.n_core
-                if STACKED:
-                    FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
-                              self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, 
-                              stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo).train()
-                else:
-                    FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
-                              self.grav_target_mean, self.grav_target_std, now=self.now, nn_space=self.nn_space,
-                              stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo).train()
+                with open('features_code_%s_%s'%( i,self.now ), 'wb') as f:
+                    pickle.dump(run_features, f)
+                if not self.only_save_features:
+                    if STACKED:
+                        print("Running code %s for isotherm model" %CODE)
+                        drop_features = [s for s in self.iso_all_features if s not in run_features]
+                        algo = 'nn'
+                    else:
+                        print("Running code %s for gravimetric uptake model" %CODE)
+                        algo = self.grav_algo
+                        drop_features = [s for s in self.grav_all_features if s not in run_features]
+                        #l.append(self.iso.drop(drop_features, axis=1))
+                    if algo == 'nn':
+                        N_CORE=1
+                    else:
+                        N_CORE=self.n_core
+                    if STACKED:
+                        FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
+                                  self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, 
+                                  stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo,
+                                 predefined_splits=self.predefined_splits).train()
+                    else:
+                        FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
+                                  self.grav_target_mean, self.grav_target_std, now=self.now, nn_space=self.nn_space,
+                                  stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo,
+                                 predefined_splits=self.predefined_splits).train()
 class FpDataSet:
     def __init__(self, df, features, property_used, target_mean, target_std, stacked, now, nn_space, fp_code='0', 
-                    n_core=15, grav_algo='xgb', track=True, chkpt_name='model_checkpoint',n_folds=15):
+                    n_core=15, grav_algo='xgb', track=True, chkpt_name='model_checkpoint',n_folds=15,hp=False,
+                predefined_splits=False):
         self.n_folds = n_folds #for master run
         self.now = now
         self.df = df
@@ -206,12 +215,25 @@ class FpDataSet:
         self.nn_space = nn_space
         self.hp_frac = .05
         self.fn = self.df['filename'].unique() #filenames
+        self.hp = hp
+        self.predefined_splits = predefined_splits
+        self.read_from_predefined_splits = False
         
     def make_splits(self):
+        if self.hp==False:
+            if self.predefined_splits != False:
+                if self.read_from_predefined_splits == True:
+                    with open(self.predefined_splits, 'rb') as f:
+                        input_file_tracker = pickle.load(f)
         def gen():
+            gen_fold = 0
             for train_index, test_index in KFold(self.n_folds).split(self.fn):
-                train_fn = self.fn[train_index]
-                test_fn = self.fn[test_index]
+                if self.read_from_predefined_splits == True:
+                    train_fn = input_file_tracker['train'][gen_fold]
+                    test_fn = input_file_tracker['test'][gen_fold]
+                else:
+                    train_fn = self.fn[train_index]
+                    test_fn = self.fn[test_index]
                 train_df = self.df[self.df['filename'].isin(train_fn)].reset_index().drop('index', axis=1)
                 test_df = self.df[self.df['filename'].isin(test_fn)].reset_index().drop('index', axis=1)
                 if self.track:
@@ -225,9 +247,11 @@ class FpDataSet:
                         self.pressure_tracker['test'].append(['na']*len(test_df))
                 X_train, X_test = train_df[self.features].to_numpy(), test_df[self.features].to_numpy()
                 y_train, y_test = train_df[self.property_used].to_numpy(), test_df[self.property_used].to_numpy()
+                
+                gen_fold += 1
                 yield X_train,y_train,X_test,y_test
 
-        return tf.data.Dataset.from_generator(gen, (tf.float64,tf.float64,tf.float64,tf.float64))    
+        return tf.data.Dataset.from_generator(gen, (tf.float32,tf.float32,tf.float32,tf.float32))    
     def CV_objective(self, params):
         try:
             lr = params[1]
@@ -336,7 +360,7 @@ class HPOpt:
     def get_params(self):
         HP_Inst = FpDataSet(self.df, self.features, self.property_used, self.target_mean, self.target_std, 
                             self.stacked, self.now, self.space, '0',1, self.grav_algo, track=False, 
-                            chkpt_name='hp_model_checkpoint', n_folds=5)
+                            chkpt_name='hp_model_checkpoint', n_folds=5, hp=True)
         self.start = time.time()
         r = gp_minimize(HP_Inst.CV_objective, self.space, n_calls=self.N_CALLS)
         self.end = time.time()
