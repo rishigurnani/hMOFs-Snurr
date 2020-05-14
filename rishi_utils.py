@@ -3,9 +3,12 @@ import sys
 import argparse
 import gzip
 import os
+from os import listdir
+from os.path import isfile, join
 import itertools
 import numpy as np
 import datetime
+import random
 
 def pd_load(path):
     try:
@@ -77,18 +80,24 @@ def all_positions(len_list, n_ones):
     tup_zero_ind = list(itertools.combinations(range(len_list), n_ones))
     return [[i+1 for i in tup] for tup in tup_zero_ind]
 
-def polymerize(s):
+def polymerize(s,n=None):
     '''
-    Return all SMILES strings of molecule with 2 Hs replaced by *
+    Return n random SMILES strings of molecule with 2 Hs replaced by *
     '''
     from rdkit import Chem
-    mol = Chem.MolFromSmiles(s)
-    mol_h = Chem.AddHs(mol)
-    h_smiles = Chem.MolToSmiles(mol_h)
-    n_h = h_smiles.count('[H]')
-    position_list = all_positions(n_h, 2) #only want 2 H's replace by *
-    poly_smiles = [set_repl(h_smiles, '[H]', "[*]", pos) for pos in position_list]
-    return poly_smiles
+    try:
+        mol = Chem.MolFromSmiles(s)
+        mol_h = Chem.AddHs(mol)
+        h_smiles = Chem.MolToSmiles(mol_h)
+        n_h = h_smiles.count('[H]')
+        position_list = all_positions(n_h, 2) #only want 2 H's replace by *
+        if n != None and len(position_list)>n:
+            random.shuffle(position_list)
+            position_list = position_list[:n]
+        poly_smiles = [set_repl(h_smiles, '[H]', "[*]", pos) for pos in position_list]
+        return poly_smiles
+    except:
+        return None
 
 def depolymerize(s):
     return s.replace('[*]', '[H]')
@@ -223,3 +232,37 @@ def smiles_rxn1(s):
     else:
         add = 1
     return m0[:Os[0]+add]+'[*]'+m0[Os[0]+add:Os[1]+1]+m1+m0[Os[1]+1:]
+
+def getAllFilenames(parent_dir):
+    return [parent_dir+f for f in listdir(parent_dir) if isfile(join(parent_dir, f))]
+
+def eq_space(x, y, n, force_int=False):
+    '''
+    Return n equally-spaced values between x and y
+    '''
+    step = (y - x) / (n - 1)
+    if force_int:
+        return [int(x + step * i) for i in range(n)]
+    return [x + step * i for i in range(n)]
+
+def df_split(a, n_chunks):
+    '''
+    Split a df, a, into n_chunks
+    '''
+    return np.array_split(a,n_chunks)
+
+def worker_number(Process):
+    s = str(Process)
+    return int(s.split('-')[1].split(',')[0])
+
+def flatten_ll(l):
+    '''
+    Flatten list of list
+    '''
+    return [item for sublist in l for item in sublist]
+
+def alphabetize(df):
+    '''
+    Return df with columns arranged alphabetically
+    '''
+    return df.reindex(sorted(df.columns), axis=1)
