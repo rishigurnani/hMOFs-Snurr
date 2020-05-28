@@ -48,8 +48,15 @@ def mkdir_existOk(path):
         os.makedirs(path)
 
 def pass_argparse_list(l):
-    l = ['"%s"' %t for t in l]
+    l = list(l)
+    l = ['"%s"'.replace('[','').replace(']','') %t for t in l]
     return ' '.join(l)
+
+def pass_argparse_bool(val, flag):
+    if val:
+        return flag
+    else:
+        return ''
 
 def set_repl(s, sub, repl, ns):
     '''
@@ -73,12 +80,15 @@ def set_repl(s, sub, repl, ns):
             s = s[:find] + repl + s[find+len(sub):]
     return s
 
-def all_positions(len_list, n_ones):
+def all_positions(len_list, n_ones, zero_index=False):
     '''
     Return list of all unique combinations where n ones can arranged with len_list positions
     '''
     tup_zero_ind = list(itertools.combinations(range(len_list), n_ones))
-    return [[i+1 for i in tup] for tup in tup_zero_ind]
+    if zero_index:
+        return [list(tup) for tup in tup_zero_ind]
+    else:
+        return [[i+1 for i in tup] for tup in tup_zero_ind]
 
 def polymerize(s,n=None):
     '''
@@ -102,13 +112,28 @@ def polymerize(s,n=None):
 def depolymerize(s):
     return s.replace('[*]', '[H]')
 
-def drawFromSmiles(s, img_size=(300,300), addH=False):
+def drawFromSmiles(s,molSize=(600,300),kekulize=True):
     from rdkit import Chem
-    from rdkit.Chem import Draw
-    mol = Chem.MolFromSmiles(s, sanitize=True)
-    if addH:
-        mol = Chem.AddHs(mol)
-    return Draw.MolToImage(mol, size=img_size)
+    from rdkit.Chem.Draw import IPythonConsole
+    from rdkit.Chem import rdDepictor
+    from rdkit.Chem.Draw import rdMolDraw2D
+    from rdkit.Chem import MolFromSmiles
+    from rdkit.Chem.Draw import DrawingOptions
+    DrawingOptions.atomLabelFontSize = 100
+    mol = MolFromSmiles(s)
+    mc = Chem.Mol(mol.ToBinary())
+    if kekulize:
+        try:
+            Chem.Kekulize(mc)
+        except:
+            mc = Chem.Mol(mol.ToBinary())
+    if not mc.GetNumConformers():
+        rdDepictor.Compute2DCoords(mc)
+    drawer = rdMolDraw2D.MolDraw2DSVG(molSize[0],molSize[1])
+    drawer.DrawMolecule(mc)
+    drawer.FinishDrawing()
+    svg = drawer.GetDrawingText()
+    return svg
 
 def avg_max_n_pct_error(true, pred, frac=.01):
     '''
@@ -157,7 +182,7 @@ def str2bool(s):
 
 
 # Tanimoto similarity function over Morgan fingerprint
-def similarity(a, b):
+def similarity(a, b, n_bits=2048):
 
     import rdkit
     from rdkit import Chem, DataStructs
@@ -168,8 +193,8 @@ def similarity(a, b):
     bmol = Chem.MolFromSmiles(b)
     if amol is None or bmol is None:
         return 0.0
-    fp1 = AllChem.GetMorganFingerprintAsBitVect(amol, 2, nBits=2048, useChirality=False)
-    fp2 = AllChem.GetMorganFingerprintAsBitVect(bmol, 2, nBits=2048, useChirality=False)
+    fp1 = AllChem.GetMorganFingerprintAsBitVect(amol, 2, nBits=n_bits, useChirality=False)
+    fp2 = AllChem.GetMorganFingerprintAsBitVect(bmol, 2, nBits=n_bits, useChirality=False)
     return DataStructs.TanimotoSimilarity(fp1, fp2)
 
 def symmetrize(a):
@@ -187,15 +212,26 @@ def symmetrize(a):
     """
     return a + a.T - np.diag(a.diagonal())
 
-def struct_uniqueness(l):
+def struct_uniqueness(l,n_core=1):
     '''
     Find the structural uniqueness of each polymer in a list of polymers
     '''
+    from joblib import Parallel, delayed
     mat = np.zeros((len(l), len(l)))
-    for ind1,i in enumerate(l):
-        for ind2,j in enumerate(l):
-            if i<j:
-                mat[ind1][ind2] = similarity(i,j)
+    data=[(ind1,ind2,i,j) for ind1,i in enumerate(l) for ind2,j in enumerate(l) if i<j]
+    max_ops = (3500*3499)/2
+    if len(data) > max_ops:
+        print('**Warning!** Large number of input polymers has triggered approximate, not exact, uniqueness computation')
+        data = random.shuffle(data)[:max_ops]
+    def helper(x):
+        ind1=x[0]
+        ind2=x[1]
+        i=x[2]
+        j=x[3]
+        return (ind1,ind2,similarity(i,j,1024))
+    vals=Parallel(n_jobs=n_core)(delayed(helper)(x) for x in data)
+    for ind1,ind2,sim in vals:
+        mat[ind1][ind2] = sim
     mat = symmetrize(mat)
     return np.subtract(np.ones(len(l)), np.max(mat, axis=0))
 
@@ -266,3 +302,37 @@ def alphabetize(df):
     Return df with columns arranged alphabetically
     '''
     return df.reindex(sorted(df.columns), axis=1)
+
+def fp_intersection(df, ref, non_fp_cols=[]):
+    '''
+    Return intersection of fingerprint between two dataframes
+    '''
+    return set([i for i in df.keys().tolist() if i not in non_fp_cols]).intersection(ref.keys().tolist())
+
+def dropWithToleranceFromReference(df, ref, tolerance=.001,non_fp_cols=[]):
+    fp_intersect=fp_intersection(df, ref, non_fp_cols)
+    print("%s fingerprint columns intersect" %len(fp_intersect)) 
+    np_df = df[list(fp_intersect)].to_numpy()
+
+    tol = [tolerance]*len(fp_intersect)
+
+    np_reduced = ref[list(fp_intersect)].to_numpy()
+    keep_inds = []
+    fp_vals = []
+    for ind, row in enumerate(np_df):
+        diffs = np.abs(np.asarray(row[None, :]) - np_reduced)
+        matching_inds = np.nonzero((diffs <= tol).all(1))[0].tolist()
+        if len(matching_inds) == 0:
+            keep_inds.append(ind)
+            fp_vals.append(row)
+    print("%s Unique (in fingerprint space) rows have survived" %len(keep_inds))
+    #new_polymers_df = pd.DataFrame({'SMILES': new_polymers, "Band gap": pvs})
+    new_polymers_df = df.iloc[keep_inds]
+    return new_polymers_df
+
+def chunk_div(i, n):
+    '''
+    Divide i into n chunks which sum to i
+    '''
+    k, m = divmod(i, n)
+    return [((i + 1) * k + min(i + 1, m)) - ((i) * k + min(i, m))  for i in range(n)]

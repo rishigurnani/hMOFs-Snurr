@@ -1,3 +1,5 @@
+import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error
 import pandas as pd
@@ -8,10 +10,8 @@ import numpy as np
 from os import path
 import pandas as pd 
 import os
-import tensorflow as tf
-tf.compat.v1.enable_eager_execution()
 from tensorflow import keras
-from keras.backend import manual_variable_initialization 
+from tensorflow.keras.backend import manual_variable_initialization 
 manual_variable_initialization(True)
 import tensorflow.keras.backend as K
 #K.clear_session()
@@ -498,6 +498,7 @@ def build_model(n_features, lr, h_units, ACTIVATION):
     #x = tf.placeholder('float', shape = [None, n_features])
     model = keras.Sequential([
         layers.Dense(h_units, activation='relu', input_shape=[n_features]), #default is 100
+        #layers.Attention(), #default is not include
         #layers.Dense(100, activation='relu'), #default is not exist
         #layers.Dropout(.1), #default is not exist
         #layers.Dense(100, activation='relu'), #default is not exist
