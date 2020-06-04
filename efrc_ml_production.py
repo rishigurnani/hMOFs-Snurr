@@ -712,7 +712,7 @@ def shap_mat(model, data, model_type):
     shap_values = explainer.shap_values(data)
     end = time.time()
     print("Time elapsed to create shap values: %s" %(end-start))
-    return shap_values
+    return shap_values, explainer
 
 def shap_save(path_to_df, results_path, model_path, features, sample_frac, save_path_shap, save_path_sample, model_type):
     '''
@@ -753,8 +753,10 @@ def shap_change_names(s):
     except:
         if s[:5] == 'norm_':
             s = s[5:]
+#         if s[-3:] == '_si':
+#             s = 'norm_' + s[:-3]
         if s[-3:] == '_si':
-            s = 'norm_' + s[:-3]
+            s = s[:-3]
         if 'Mefp_' in s:
             s = s.replace('Mefp_', '')
         if 'Mmfp_' in s:
@@ -775,4 +777,4 @@ def shap_df_to_mat(df, drop_columns=[]):
         drop_columns = [drop_columns]
     drop_columns += ['filename']
     drop_columns += [col for col in df.keys().tolist() if 'Unnamed' in col]
-    return df.drop(drop_columns, axis=1).to_numpy(), [f for f in df.keys().tolist() if f not in drop_columns]
+    return df.drop(drop_columns, axis=1).to_numpy(), [shap_change_names(f) for f in df.keys().tolist() if f not in drop_columns]

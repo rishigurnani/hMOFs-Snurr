@@ -12,10 +12,17 @@ import random
 
 def pd_load(path):
     try:
-        return pd.read_csv(path)
+        df=pd.read_csv(path)
     except:
-        return pd.read_csv(path, compression='gzip')
+        df=pd.read_csv(path, compression='gzip')
+    drop_cols = [col for col in df.columns.tolist() if 'Unnamed' in col]
+    return df.drop(drop_cols,axis=1)
 
+def nan_cols(df):
+    '''
+    Return list of columns in df which contain NaN
+    '''
+    return df.columns[df.isnull().any()].tolist()
 def compress_gzip(compress):
     '''
     Compress all files in the list 'compress'
@@ -219,10 +226,11 @@ def struct_uniqueness(l,n_core=1):
     from joblib import Parallel, delayed
     mat = np.zeros((len(l), len(l)))
     data=[(ind1,ind2,i,j) for ind1,i in enumerate(l) for ind2,j in enumerate(l) if i<j]
-    max_ops = (3500*3499)/2
+    max_ops = (3500*3499)/2 #largest number of similarity calculations which will be performed
     if len(data) > max_ops:
         print('**Warning!** Large number of input polymers has triggered approximate, not exact, uniqueness computation')
-        data = random.shuffle(data)[:max_ops]
+        random.shuffle(data)
+        data = data[:max_ops]
     def helper(x):
         ind1=x[0]
         ind2=x[1]
@@ -262,7 +270,7 @@ def smiles_rxn1(s):
     m1 = monomers[1].replace('Cl', '', 1)
     m1 = m1.replace('Cl', '[*]')
     m0 = monomers[0]
-    Os = ru.getIndexPositions(m0, 'O')
+    Os = getIndexPositions(m0, 'O')
     if Os[0] == 0:
         add = 0
     else:
