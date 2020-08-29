@@ -334,6 +334,10 @@ def prepToSplit(algo, cat_si_sd, SD_ML_DATA_PATH, SI_ML_DATA_PATH, start_str_sd,
             ml_data.columns = old_cols + size_names
         print('Finished Making Linker Size Columns')
         if algo == 'nn':
+            with open('./fp_size_means.pkl','wb') as f:
+                pickle.dump(ml_data[size_names].mean(),f)
+            with open('./fp_size_stds.pkl','wb') as f:
+                pickle.dump(ml_data[size_names].std(),f)
             ml_data[size_names]=(ml_data[size_names]-ml_data[size_names].mean())/ml_data[size_names].std()
 
     ml_data = reduce_size(ml_data)
@@ -743,14 +747,18 @@ def shap_change_names(s):
      'norm_Mmfp_Chi1n': 'Chi1n',
      'norm_Vol._Surf._Area': 'Volumetric Surface Area',
      'oh_1': 'Cat_1',
+     'norm_ionization_potential_pa_(eV)': 'Ionization Potential',
+     'norm_affinity_pa_(eV)': 'Affinity',
      'norm_Max._Pore_(ang.)': 'Max Pore Diameter',
      'norm_Dom._Pore_(ang.)': 'Dominant Pore Diameter',
-     'norm_atomic_rad_pa_(angstroms)': 'Atomic_rad',
+     'norm_atomic_rad_pa_(angstroms)': 'Atomic Radius',
      'norm_log_pressure': 'Pressure'
     }
     try:
         return d[s]
     except:
+        if '(' in s:
+            print(s)
         if s[:5] == 'norm_':
             s = s[5:]
 #         if s[-3:] == '_si':

@@ -107,3 +107,5 @@ affinity={'Al':0.433, #e- affinity (eV) as found at https://en.wikipedia.org/wik
  'W':0.816,
  'Zn':-0.6,
  'Zr':0.433}
+
+rare_earths = ['Ce','Dy','Er','Eu','Gd','Ho','La','Lu','Nd','Pr','Pm','Sm','Sc','Tb','Tm','Yb','Y']
