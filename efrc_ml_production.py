@@ -11,7 +11,7 @@ import os
 import tensorflow as tf
 tf.compat.v1.enable_eager_execution()
 from tensorflow import keras
-from keras.backend import manual_variable_initialization 
+from tensorflow.keras.backend import manual_variable_initialization 
 manual_variable_initialization(True)
 import tensorflow.keras.backend as K
 #K.clear_session()
@@ -170,6 +170,9 @@ def normPressure(df):
     
     
     log_p_mean, log_p_std, property_used = norm_col(df, 'log_pressure')
+    n_inst = len(df)
+    df['mean_log_pressure'] = [log_p_mean]*n_inst
+    df['std_log_pressure'] = [log_p_std]*n_inst    
 
     max_p = max(df[property_used].tolist())
     min_p = min(df[property_used].tolist())
