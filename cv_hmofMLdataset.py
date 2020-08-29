@@ -82,6 +82,7 @@ class hmofMLdataset:
         self.cat_si_sd = True
         self.add_size_fp = True #make True if you want to add 20 feature columns, where each feature is the number of atoms in a linker
         self.srt_size_fp = True
+        self.quit_size_fp = True #make True if script should end after saving mean/std of linker size fps
         self.iso_start_str_sd = 'Density'
         self.iso_end_str_sd = 'norm_Dom._Pore_(ang.)'
         self.grav_start_str_sd = 'CH4_v/v_248_bar'
@@ -161,6 +162,8 @@ class hmofMLdataset:
     def makeAllResults(self):
         self.makeMasterDFs()
         print('\n')
+        if self.quit_size_fp:
+            return None
         #Parallel(n_jobs=self.n_core)(delayed(self.makeResult)(j) for j in self.feature_codes)
         for i in self.feature_codes: #True if stacked
                 STACKED = bool(int(i[-1])) #True (=1) if stacked

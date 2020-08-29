@@ -1,3 +1,5 @@
+import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error
 import pandas as pd
@@ -8,8 +10,6 @@ import numpy as np
 from os import path
 import pandas as pd 
 import os
-import tensorflow as tf
-tf.compat.v1.enable_eager_execution()
 from tensorflow import keras
 from tensorflow.keras.backend import manual_variable_initialization 
 manual_variable_initialization(True)
@@ -337,6 +337,10 @@ def prepToSplit(algo, cat_si_sd, SD_ML_DATA_PATH, SI_ML_DATA_PATH, start_str_sd,
             ml_data.columns = old_cols + size_names
         print('Finished Making Linker Size Columns')
         if algo == 'nn':
+            with open('./fp_size_means.pkl','wb') as f:
+                pickle.dump(ml_data[size_names].mean(),f)
+            with open('./fp_size_stds.pkl','wb') as f:
+                pickle.dump(ml_data[size_names].std(),f)
             ml_data[size_names]=(ml_data[size_names]-ml_data[size_names].mean())/ml_data[size_names].std()
 
     ml_data = reduce_size(ml_data)
@@ -501,6 +505,7 @@ def build_model(n_features, lr, h_units, ACTIVATION):
     #x = tf.placeholder('float', shape = [None, n_features])
     model = keras.Sequential([
         layers.Dense(h_units, activation='relu', input_shape=[n_features]), #default is 100
+        #layers.Attention(), #default is not include
         #layers.Dense(100, activation='relu'), #default is not exist
         #layers.Dropout(.1), #default is not exist
         #layers.Dense(100, activation='relu'), #default is not exist
@@ -714,7 +719,7 @@ def shap_mat(model, data, model_type):
     shap_values = explainer.shap_values(data)
     end = time.time()
     print("Time elapsed to create shap values: %s" %(end-start))
-    return shap_values
+    return shap_values, explainer
 
 def shap_save(path_to_df, results_path, model_path, features, sample_frac, save_path_shap, save_path_sample, model_type):
     '''
@@ -745,18 +750,24 @@ def shap_change_names(s):
      'norm_Mmfp_Chi1n': 'Chi1n',
      'norm_Vol._Surf._Area': 'Volumetric Surface Area',
      'oh_1': 'Cat_1',
+     'norm_ionization_potential_pa_(eV)': 'Ionization Potential',
+     'norm_affinity_pa_(eV)': 'Affinity',
      'norm_Max._Pore_(ang.)': 'Max Pore Diameter',
      'norm_Dom._Pore_(ang.)': 'Dominant Pore Diameter',
-     'norm_atomic_rad_pa_(angstroms)': 'Atomic_rad',
+     'norm_atomic_rad_pa_(angstroms)': 'Atomic Radius',
      'norm_log_pressure': 'Pressure'
     }
     try:
         return d[s]
     except:
+        if '(' in s:
+            print(s)
         if s[:5] == 'norm_':
             s = s[5:]
+#         if s[-3:] == '_si':
+#             s = 'norm_' + s[:-3]
         if s[-3:] == '_si':
-            s = 'norm_' + s[:-3]
+            s = s[:-3]
         if 'Mefp_' in s:
             s = s.replace('Mefp_', '')
         if 'Mmfp_' in s:
@@ -777,4 +788,4 @@ def shap_df_to_mat(df, drop_columns=[]):
         drop_columns = [drop_columns]
     drop_columns += ['filename']
     drop_columns += [col for col in df.keys().tolist() if 'Unnamed' in col]
-    return df.drop(drop_columns, axis=1).to_numpy(), [f for f in df.keys().tolist() if f not in drop_columns]
+    return df.drop(drop_columns, axis=1).to_numpy(), [shap_change_names(f) for f in df.keys().tolist() if f not in drop_columns]
