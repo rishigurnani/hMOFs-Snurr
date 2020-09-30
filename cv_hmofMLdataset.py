@@ -47,8 +47,10 @@ import tensorflow as tf
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth=True
 sess = tf.compat.v1.Session(config=config)
-tf.compat.v1.enable_eager_execution(config=config)
+tf.compat.v1.enable_eager_execution()
 from tensorflow import keras
+from tensorflow.keras.backend import manual_variable_initialization
+manual_variable_initialization(True)
 import tensorflow.keras.backend as K
 from tensorflow.keras import layers
 import tensorflow_docs as tfdocs
@@ -56,6 +58,10 @@ import tensorflow_docs.plots
 import tensorflow_docs.modeling
 
 from sklearn.model_selection import LeaveOneOut,KFold
+
+import shap
+
+from sklearn.preprocessing import RobustScaler
 
 class hmofMLdataset:
     def __init__(self, results_dir, now, SI_grav_data_path='/data/rgur/efrc/prep_data/all_v1/ml_data.csv', 
@@ -189,9 +195,45 @@ class hmofMLdataset:
                                   self.grav_target_mean, self.grav_target_std, now=self.now, nn_space=self.nn_space,
                                   stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo,
                                  predefined_splits=self.predefined_splits).train()
+    def returnFpDataSets(self):
+        l = []
+        self.makeMasterDFs()
+        print('\n')
+        #Parallel(n_jobs=self.n_core)(delayed(self.makeResult)(j) for j in self.feature_codes)
+        for i in self.feature_codes: #True if stacked
+                STACKED = bool(int(i[-1])) #True (=1) if stacked
+                CODE = i[:-1]
+                run_features = self.select_features(code=CODE, stacked=STACKED)
+                with open('features_code_%s_%s'%( i,self.now ), 'wb') as f:
+                    pickle.dump(run_features, f)
+                if not self.only_save_features:
+                    if STACKED:
+                        print("Running code %s for isotherm model" %CODE)
+                        drop_features = [s for s in self.iso_all_features if s not in run_features]
+                        algo = 'nn'
+                    else:
+                        print("Running code %s for gravimetric uptake model" %CODE)
+                        algo = self.grav_algo
+                        drop_features = [s for s in self.grav_all_features if s not in run_features]
+                        #l.append(self.iso.drop(drop_features, axis=1))
+                    if algo == 'nn':
+                        N_CORE=1
+                    else:
+                        N_CORE=self.n_core
+                    if STACKED:
+                        l.append(FpDataSet(self.iso.drop(drop_features, axis=1), run_features, self.iso_prop, 
+                                  self.iso_target_mean, self.iso_target_std, now=self.now, nn_space=self.nn_space, 
+                                  stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo,
+                                 predefined_splits=self.predefined_splits))
+                    else:
+                        l.append(FpDataSet(self.grav.drop(drop_features, axis=1), run_features, self.grav_prop, 
+                                  self.grav_target_mean, self.grav_target_std, now=self.now, nn_space=self.nn_space,
+                                  stacked=STACKED, fp_code=CODE, n_core=N_CORE, grav_algo=self.grav_algo,
+                                 predefined_splits=self.predefined_splits))
+        return l
 class FpDataSet:
     def __init__(self, df, features, property_used, target_mean, target_std, stacked, now, nn_space, fp_code='0', 
-                    n_core=15, grav_algo='xgb', track=True, chkpt_name='model_checkpoint',n_folds=15,hp=False,
+                    n_core=15, grav_algo='xgb', track=True, chkpt_name='model_checkpoint',n_folds=10,hp=False,
                 predefined_splits=False):
         self.n_folds = n_folds #for master run
         self.now = now
@@ -229,6 +271,13 @@ class FpDataSet:
                     with open(self.predefined_splits, 'rb') as f:
                         input_file_tracker = pickle.load(f)
         def gen():
+#             transformer = RobustScaler()
+#             size_cols = ["size_%s" %s for s in range(20)]
+#             try:
+#                 self.df[size_cols]=transformer.fit_transform(self.df[size_cols])
+                
+#             except:
+#                 pass
             gen_fold = 0
             for train_index, test_index in KFold(self.n_folds).split(self.fn):
                 if self.read_from_predefined_splits == True:
@@ -239,7 +288,10 @@ class FpDataSet:
                     test_fn = self.fn[test_index]
                 train_df = self.df[self.df['filename'].isin(train_fn)].reset_index().drop('index', axis=1)
                 test_df = self.df[self.df['filename'].isin(test_fn)].reset_index().drop('index', axis=1)
+                tr = ru.alphabetize(train_df[self.features])
+                te = ru.alphabetize(test_df[self.features])
                 if self.track:
+                    pd.concat([train_df,test_df],ignore_index=True).to_csv('df_%s_%s.csv'%(gen_fold,self.now),compression='gzip')
                     self.file_tracker['train'].append(train_df['filename'].tolist())
                     self.file_tracker['test'].append(test_df['filename'].tolist())
                     try:
@@ -248,7 +300,7 @@ class FpDataSet:
                     except:
                         self.pressure_tracker['train'].append(['na']*len(train_df))
                         self.pressure_tracker['test'].append(['na']*len(test_df))
-                X_train, X_test = train_df[self.features].to_numpy(), test_df[self.features].to_numpy()
+                X_train, X_test = tr.to_numpy(), te.to_numpy()
                 y_train, y_test = train_df[self.property_used].to_numpy(), test_df[self.property_used].to_numpy()
                 
                 gen_fold += 1
@@ -293,6 +345,7 @@ class FpDataSet:
                         use_multiprocessing=False
                      ) 
             model.load_weights(filepath='%s.h5' %self.chkpt_name)
+            self.model = model
             preds = model.predict(X_test).flatten()
             rmse = ml.get_rmse(preds, y_test)
             print("RMSE of fold %s is %s" %( fold,rmse ))
@@ -320,7 +373,7 @@ class FpDataSet:
                     model.save('%s.h5' %save_fragment,save_format='h5')
             
             fold+=1
-        print("\nBest fold is %s" %np.array(rmses).argmax())
+        print("\nBest fold is %s" %np.array(rmses).argmin())
         print("Average RMSEs of best epochs in each fold: %s" %np.mean(rmses))
         end = time.time()
         print('Set of Folds Done in %s' %(end-start))        

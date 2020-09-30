@@ -10,6 +10,7 @@ args = parser.parse_args()
 #path = args[1]
 for path in args.compress:
     print('Compressing %s' %path)
+    sys.stdout.flush()
     df = pd.read_csv(path)
 
     df.to_csv(path, compression='gzip')

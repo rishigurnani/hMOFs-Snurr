@@ -170,6 +170,9 @@ def normPressure(df):
     
     
     log_p_mean, log_p_std, property_used = norm_col(df, 'log_pressure')
+    n_inst = len(df)
+    df['mean_log_pressure'] = [log_p_mean]*n_inst
+    df['std_log_pressure'] = [log_p_std]*n_inst    
 
     max_p = max(df[property_used].tolist())
     min_p = min(df[property_used].tolist())
