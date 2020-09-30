@@ -25,6 +25,7 @@ except:
 
 sys.path.append('/home/appls/machine_learning/PolymerGenome/src/common_lib')
 import auxFunctions as aF
+from rdkit.Chem import rdmolfiles
 
 def pd_load(path):
     try:
@@ -402,14 +403,20 @@ def canonicalizeAndRemoveH(s):
         print('***Warning*** Canonicalization failed')
         return None
 
-def multiplySmiles(s,n):
+def multiplySmiles(s,n,mol=True):
     '''
-    Make Chiho's code robust to n=1 case
+    Make Chiho's code robust to n=1 case. mol=True means the connection points will be replaced by [*]
     '''
     if n==1:
-        return s.replace('*','H')
+        if mol==True:
+            return s.replace('*','H')
+        else:
+            return s
     else:
-        return aF.v2_multiply_smiles_star(s, number_of_multiplications = n, debug=0)['extended_smiles']
+        if mol==True:
+            return aF.v2_multiply_smiles_star(s, number_of_multiplications = n, debug=0)['extended_smiles']
+        else:
+            return aF.v2_multiply_smiles_star(s, number_of_multiplications = n, debug=0)['At_extended_smiles_At'].replace('Bi','*')
 
 def monomer_join(a,b):
     '''
@@ -507,6 +514,28 @@ def frequency_dict(my_list):
 
     return freq
 
+
+def get_star_inds(mol):
+    if type(mol) == str:
+        mol = Chem.MolFromSmiles(mol)
+    star_inds = []
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() == '*':
+            star_inds.append(atom.GetIdx())
+    return star_inds
+
+def get_connector_inds(mol):
+    if type(mol) == str:
+        mol = Chem.MolFromSmiles(mol)
+    star_inds = get_star_inds(mol)
+    connector_inds = []
+    for ind in star_inds:
+        star=mol.GetAtoms()[ind]
+        connector=star.GetNeighbors()[0]
+        connector_inds.append(connector.GetIdx())
+    return connector_inds
+    
+
 def _main_chain_len(s):
     mol = Chem.MolFromSmiles(s)
     star_inds = []
@@ -523,6 +552,70 @@ def main_chain_len(ls):
         ls = list(ls)    
     return [_main_chain_len(s) for s in ls]
 
+class LinearPol(Chem.rdchem.Mol):
+    def __init__(self, mol,SMILES=None): 
+        if type(mol) == str:
+            self.mol = Chem.MolFromSmiles(mol)
+            self.SMILES = mol
+        else:
+            self.mol = mol
+            if SMILES == None:
+                self.SMILES = Chem.MolToSmiles(self.mol)
+            else:
+                self.SMILES = SMILES
+        self.star_inds = get_star_inds(self.mol)
+        #self.connector_inds = get_connector_inds(self.mol)
+        self.connector_inds = self.get_connector_inds()
+        self.main_chain_atoms = self.get_main_chain()
+#         self.main_chain_atoms = [x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
+        
+        self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms])) #need to implement
+        self.beta_atoms = None #need to implement
+        
+    
+    def get_main_chain(self):
+        #inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
+        inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1])]
+        return [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind in inds]
+    
+    def get_connector_inds(self):
+            connector_inds = []
+            for ind in self.star_inds:
+                star=self.mol.GetAtoms()[ind]
+                connector=star.GetNeighbors()[0]
+                connector_inds.append(connector.GetIdx())
+            return connector_inds
+    def PeriodicMol(self):
+        em = Chem.EditableMol(self.mol)
+        try:
+            em.AddBond(self.connector_inds[0],self.connector_inds[1],Chem.BondType.SINGLE)
+            em.RemoveAtom(self.star_inds[0])
+            em.RemoveAtom(self.star_inds[1] - 1)
+            return em.GetMol()
+        except:
+            print('!!!Periodization Failed!!!')
+            return None
+    def SubChainMol(self,mol,keep_atoms):
+        em = Chem.EditableMol(mol)
+        keeps_atoms_idx = [atom.GetIdx() for atom in keep_atoms]
+        for i in reversed(range(len(mol.GetAtoms()))):
+            if i not in keeps_atoms_idx:
+                em.RemoveAtom(i)
+        try:
+            m = em.GetMol()
+            Chem.SanitizeMol(m)
+            return m
+        except:
+            return None        
+    
+    def MainChainMol(self):
+        mol = self.SubChainMol(self.mol,self.main_chain_atoms)
+        return LinearPol(mol,self.SMILES).PeriodicMol()
+    
+    def AlphaMol(self):
+        mol = self.SubChainMol(self.mol,self.alpha_atoms)
+        return LinearPol(mol,self.SMILES).PeriodicMol()
+    
 def pltDensity(property_X,property_Y,N_BINS=100,cmapName='plasma_r',order='random',count_thresh=None):
     '''
     N_BINS: Number of bins per dimension
@@ -584,6 +677,12 @@ def pltDensity(property_X,property_Y,N_BINS=100,cmapName='plasma_r',order='rando
         tick_labels[-1] = '>%s' %count_thresh
     
     return property_X, property_Y, c, sm, count_data
+
+def is_symmetric_chem(mol):
+    if type(mol) == str:
+        mol = Chem.MolFromSmiles(mol)    
+    z=list(rdmolfiles.CanonicalRankAtoms(mol, breakTies=False))
+    return len(z) != len(set(z))
 
 def checkSubstrings(l,s):
     '''
