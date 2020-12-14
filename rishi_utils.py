@@ -23,6 +23,11 @@ try:
 except:
     pass
 
+try:
+    from sklearn.externals import joblib
+except:
+    pass
+
 sys.path.append('/home/appls/machine_learning/PolymerGenome/src/common_lib')
 import auxFunctions as aF
 from rdkit.Chem import rdmolfiles
@@ -741,3 +746,52 @@ def getPGCols(df):
     '''
     cols = df.columns.tolist()
     return [col for col in cols if checkSubstrings(['afp','mfp','efp','bfp'],col)]
+
+def gprFeatureOrder(model_path,fp_file_path):
+    file_model = model_path
+    model_obj = joblib.load(file_model)
+    fingerprint_df = pd.read_csv(fp_file_path)
+    fingerprint = fingerprint_df.iloc[0,:].to_dict()
+
+    # From ml_prediction
+
+    debug=1
+    gp = joblib.load(file_model)
+
+    X_heads = gp.X_heads
+
+    X = []
+    names = []
+    for key in X_heads:
+        if key in fingerprint:
+            X.append(fingerprint[key])
+            names.append(key)
+        else:
+            if 'afp_' in key or 'bfp_' in key or 'mfp_' in key or 'efp_' in key:
+                X.append(0)
+                names.append(key)
+                if debug:
+                    print('    !Warning: Column \'%s\'... polymer fingerprint is missing in fingerprint file. Assumed %s = 0' % (key, key))
+            else:
+                if debug:
+                    print('    !Error: Column \'%s\' is missing in fingerprint file. Prediction cannot be made.' % key)
+                    print('            Required columns: ', X_heads)
+                sys.exit()
+
+    for key in fingerprint:
+        if not key in X_heads:
+            if debug:
+                print('    !Warning: Column \'%s\' is not a member of training dataset. This column is ignored for the prediction.' % key)
+
+    X = np.array(X)
+    X = X.reshape(1,-1)
+
+    ML_fp_scale = gp.X_scaled
+
+    if ML_fp_scale == 1:
+        # Get X scale from model.pkl
+        X_scale = gp.X_scale
+        X = X_scale.transform(X)
+
+    return names
+    
