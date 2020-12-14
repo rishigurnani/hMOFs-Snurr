@@ -34,7 +34,7 @@ def frp_depolymerize(mol):
     side_chain_patt3 = Chem.MolFromSmarts('[OH]')
     mc_match1 = mol.HasSubstructMatch(main_chain_patt1)
     mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
-    sc_matches = mol.HasSubstructMatch(side_chain_patt1) or mol.HasSubstructMatch(side_chain_patt2) or side_chain_patt3
+    sc_matches = mol.HasSubstructMatch(side_chain_patt1) or mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
     
     if not sc_matches:
         lp = ru.LinearPol(mol)
@@ -58,7 +58,7 @@ def frp_depolymerize(mol):
                 Chem.AllChem.EmbedMolecule(frags[0])
                 Chem.AllChem.EmbedMolecule(frags[1])
                 volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
-                if np.min(volumes) < 35.7: #35.7 is the volume of C(F)(F). 
+                if np.min(volumes) < 20.5: #35.7 is the volume of C(F)(F). 20.5 is the volume of C(H)(H)
                     return new_mol
                 else:
                     #print(np.min(volumes))
