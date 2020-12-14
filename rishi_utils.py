@@ -26,6 +26,7 @@ except:
 sys.path.append('/home/appls/machine_learning/PolymerGenome/src/common_lib')
 import auxFunctions as aF
 from rdkit.Chem import rdmolfiles
+from rdkit.Chem.Draw import SimilarityMaps
 
 def pd_load(path):
     try:
@@ -500,6 +501,20 @@ def mol_with_atom_index(mol):
         atom.SetAtomMapNum(atom.GetIdx())
     return mol
 
+
+def mol_with_partial_charge(mol,supress_output=False):
+    '''
+    Label each atom in mol with partial charge
+    '''
+    mol = mol_with_atom_index(mol)
+    Chem.AllChem.ComputeGasteigerCharges(mol)
+    contribs = [mol.GetAtomWithIdx(i).GetDoubleProp('_GasteigerCharge') for i in range(mol.GetNumAtoms())]
+    if not supress_output:
+        for ind,i in enumerate(contribs):
+            print('Charge of atom %s is %s' %(ind,i))
+        fig = SimilarityMaps.GetSimilarityMapFromWeights(mol, contribs, colorMap='jet', contourLines=10)
+    #return fig
+
 def frequency_dict(my_list): 
     '''
     Return frequency dictionary from list
@@ -566,7 +581,7 @@ class LinearPol(Chem.rdchem.Mol):
         self.star_inds = get_star_inds(self.mol)
         #self.connector_inds = get_connector_inds(self.mol)
         self.connector_inds = self.get_connector_inds()
-        self.main_chain_atoms = self.get_main_chain()
+        self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
 #         self.main_chain_atoms = [x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
         
         self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms])) #need to implement
@@ -576,7 +591,7 @@ class LinearPol(Chem.rdchem.Mol):
     def get_main_chain(self):
         #inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
         inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1])]
-        return [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind in inds]
+        return [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind in inds], [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind not in inds]
     
     def get_connector_inds(self):
             connector_inds = []
@@ -615,6 +630,36 @@ class LinearPol(Chem.rdchem.Mol):
     def AlphaMol(self):
         mol = self.SubChainMol(self.mol,self.alpha_atoms)
         return LinearPol(mol,self.SMILES).PeriodicMol()
+    def SideChainMol(self):
+        mol = self.SubChainMol(self.mol,self.side_chain_atoms)
+        return mol
+    
+    def _HasSubstructMatch(self,mol):
+        if type(mol) == str:
+            try:
+                mol = Chem.MolFromSmiles(mol)
+            except:
+                mol = Chem.MolFromSmarts(mol)
+        return self.mol.HasSubstructMatch(mol)
+    
+    def delStarMol(self):
+        new_mol_connector_inds = [0,0]
+        for i,c in enumerate(self.connector_inds):
+            n_lower = 0
+            for s in self.star_inds:
+                if s < c:
+                    n_lower += 1
+            new_mol_connector_inds[i] = c-n_lower 
+        self.delStarMolInds = new_mol_connector_inds
+        em = Chem.EditableMol(self.mol)
+        em.RemoveAtom(max(self.star_inds)) #remove connection point
+        em.RemoveAtom(min(self.star_inds)) #remove connection point
+        try:
+            new_mol = em.GetMol()
+            Chem.SanitizeMol(new_mol)
+            return new_mol
+        except:
+            return None   
     
 def pltDensity(property_X,property_Y,N_BINS=100,cmapName='plasma_r',order='random',count_thresh=None):
     '''
