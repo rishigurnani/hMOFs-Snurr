@@ -585,10 +585,10 @@ class LinearPol(Chem.rdchem.Mol):
                 self.SMILES = SMILES
         self.star_inds = get_star_inds(self.mol) #these are always sorted from smallest index to largest index
         self.connector_inds = self.get_connector_inds() #these are always sorted from smallest index to largest index
-        self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
-#         self.main_chain_atoms = [x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
+        #self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
+        self.main_chain_atoms, self.side_chain_atoms = None,None
         
-        self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms])) #need to implement
+        #self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms])) #need to implement
         self.beta_atoms = None #need to implement
         
     
@@ -624,6 +624,7 @@ class LinearPol(Chem.rdchem.Mol):
                 connector=star.GetNeighbors()[0]
                 connector_inds.append(connector.GetIdx())
             return connector_inds
+    
     def PeriodicMol(self,repeat_unit_on_fail=False):
         em = Chem.EditableMol(self.mol)
         try:
@@ -639,6 +640,7 @@ class LinearPol(Chem.rdchem.Mol):
                 em.RemoveAtom(self.star_inds[1])
                 em.RemoveAtom(self.star_inds[0])                
                 return em.GetMol()
+
     def SubChainMol(self,mol,keep_atoms):
         em = Chem.EditableMol(mol)
         keep_atoms_idx = [atom.GetIdx() for atom in keep_atoms]
@@ -665,15 +667,20 @@ class LinearPol(Chem.rdchem.Mol):
             return None
     
     def MainChainMol(self):
+        if self.main_chain_atoms is None:
+            self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         mol = self.SubChainMol(self.mol,self.main_chain_atoms)
         return LinearPol(mol,self.SMILES).PeriodicMol()
         #return mol
     
     def AlphaMol(self):
+        self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms]))
         mol = self.SubChainMol(self.mol,self.alpha_atoms)
         return LinearPol(mol,self.SMILES).PeriodicMol()
 
     def SideChainMol(self):
+        if self.main_chain_atoms is None:
+            self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         mol = self.SubChainMol(self.mol,self.side_chain_atoms)
         return mol
     
