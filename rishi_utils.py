@@ -583,9 +583,8 @@ class LinearPol(Chem.rdchem.Mol):
                 self.SMILES = Chem.MolToSmiles(self.mol)
             else:
                 self.SMILES = SMILES
-        self.star_inds = get_star_inds(self.mol)
-        #self.connector_inds = get_connector_inds(self.mol)
-        self.connector_inds = self.get_connector_inds()
+        self.star_inds = get_star_inds(self.mol) #these are always sorted from smallest index to largest index
+        self.connector_inds = self.get_connector_inds() #these are always sorted from smallest index to largest index
         self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
 #         self.main_chain_atoms = [x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
         
@@ -625,16 +624,21 @@ class LinearPol(Chem.rdchem.Mol):
                 connector=star.GetNeighbors()[0]
                 connector_inds.append(connector.GetIdx())
             return connector_inds
-    def PeriodicMol(self):
+    def PeriodicMol(self,repeat_unit_on_fail=False):
         em = Chem.EditableMol(self.mol)
         try:
             em.AddBond(self.connector_inds[0],self.connector_inds[1],Chem.BondType.SINGLE)
+            em.RemoveAtom(self.star_inds[1])
             em.RemoveAtom(self.star_inds[0])
-            em.RemoveAtom(self.star_inds[1] - 1)
             return em.GetMol()
         except:
             print('!!!Periodization Failed!!!')
-            return None
+            if repeat_unit_on_fail == False:
+                return None
+            else:
+                em.RemoveAtom(self.star_inds[1])
+                em.RemoveAtom(self.star_inds[0])                
+                return em.GetMol()
     def SubChainMol(self,mol,keep_atoms):
         em = Chem.EditableMol(mol)
         keep_atoms_idx = [atom.GetIdx() for atom in keep_atoms]
@@ -674,12 +678,12 @@ class LinearPol(Chem.rdchem.Mol):
         return mol
     
     def _HasSubstructMatch(self,mol):
-        if type(mol) == str:
-            try:
-                mol = Chem.MolFromSmiles(mol)
-            except:
-                mol = Chem.MolFromSmarts(mol)
-        return self.mol.HasSubstructMatch(mol)
+        pm = self.PeriodicMol(repeat_unit_on_fail=True) #must use periodic mol to account for periodicity
+        return pm.HasSubstructMatch(mol)
+    
+    def _GetSubstructMatches(self,mol):
+        pm = self.PeriodicMol(repeat_unit_on_fail=True) #must use periodic mol to account for periodicity
+        return pm.GetSubstructMatches(mol)        
     
     def delStarMol(self):
         new_mol_connector_inds = [0,0]
@@ -802,7 +806,7 @@ def side_chain_large_abs_rishi(s):
 
         return max(sc_lens)    
     except:
-        print('Failed on %s' %s)
+        print('!!!Failed on %s. The polymer may not have a side chain!!!' %s)
         return 0
 
 def gprFeatureOrder(model_path,fp_file_path):
