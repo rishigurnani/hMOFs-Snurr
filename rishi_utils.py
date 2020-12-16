@@ -594,9 +594,29 @@ class LinearPol(Chem.rdchem.Mol):
         
     
     def get_main_chain(self):
+        '''return (x,y) where x are the main chain atoms and y are the rest (i.e. side chain atoms)'''
+        main_inds_no_ring=set([x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1])])
+        inds = main_inds_no_ring.copy()
+        ri = self.mol.GetRingInfo()
+        self.main_chain_rings = []
+        self.side_chain_rings = []
+        side_chain_atom_inds = set()
+        for ind,ring in enumerate(ri.AtomRings()):
+            common = inds.intersection(ring)
+            if len(common) > 0:
+                self.main_chain_rings.append(ind)
+            else:
+                self.side_chain_rings.append(ind)   
+        for i in self.main_chain_rings:
+            inds = inds.union(ri.AtomRings()[i])
+        for i in self.side_chain_rings:
+            side_chain_atom_inds = side_chain_atom_inds.union(ri.AtomRings()[i])
+        side_chain_atom_inds = side_chain_atom_inds.union([x for x in range(self.mol.GetNumAtoms()) if x not in inds])
+        return np.array([self.mol.GetAtomWithIdx(i) for i in inds]),np.array([self.mol.GetAtomWithIdx(i) for i in side_chain_atom_inds])
         #inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
-        inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1])]
-        return [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind in inds], [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind not in inds]
+        #inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1])]
+        
+        #return [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind in inds], [x for ind,x in enumerate(list(self.mol.GetAtoms())) if ind not in inds]
     
     def get_connector_inds(self):
             connector_inds = []
@@ -617,24 +637,38 @@ class LinearPol(Chem.rdchem.Mol):
             return None
     def SubChainMol(self,mol,keep_atoms):
         em = Chem.EditableMol(mol)
-        keeps_atoms_idx = [atom.GetIdx() for atom in keep_atoms]
+        keep_atoms_idx = [atom.GetIdx() for atom in keep_atoms]
         for i in reversed(range(len(mol.GetAtoms()))):
-            if i not in keeps_atoms_idx:
+            if i not in keep_atoms_idx:
                 em.RemoveAtom(i)
         try:
             m = em.GetMol()
             Chem.SanitizeMol(m)
             return m
         except:
-            return None        
+            return None    
+
+    def SubChainMol2(self,mol,keep_atoms_idx):
+        em = Chem.EditableMol(mol)
+        for i in reversed(range(len(mol.GetAtoms()))):
+            if i not in keep_atoms_idx:
+                em.RemoveAtom(i)
+        try:
+            m = em.GetMol()
+            Chem.SanitizeMol(m)
+            return m
+        except:
+            return None
     
     def MainChainMol(self):
         mol = self.SubChainMol(self.mol,self.main_chain_atoms)
         return LinearPol(mol,self.SMILES).PeriodicMol()
+        #return mol
     
     def AlphaMol(self):
         mol = self.SubChainMol(self.mol,self.alpha_atoms)
         return LinearPol(mol,self.SMILES).PeriodicMol()
+
     def SideChainMol(self):
         mol = self.SubChainMol(self.mol,self.side_chain_atoms)
         return mol
@@ -747,7 +781,34 @@ def getPGCols(df):
     cols = df.columns.tolist()
     return [col for col in cols if checkSubstrings(['afp','mfp','efp','bfp'],col)]
 
+def side_chain_large_abs_rishi(s):
+    '''
+    Absolute length of the longest side chain without ring. Rishi implementation.
+    '''
+    try:
+        mol = Chem.MolFromSmiles(s)
+        lp=ru.LinearPol(mol)
+
+        sc=lp.SideChainMol()
+
+        frags = Chem.GetMolFrags(sc, asMols=True)
+
+        sc_lens = np.zeros((len(frags,)))
+
+        for i,m in enumerate(frags):
+            ri=m.GetRingInfo()
+            m_len = m.GetNumAtoms() - len(set(ru.flatten_ll(ri.AtomRings())))
+            sc_lens[i] = m_len
+
+        return max(sc_lens)    
+    except:
+        print('Failed on %s' %s)
+        return 0
+
 def gprFeatureOrder(model_path,fp_file_path):
+    '''
+    Return feature order of GPR model
+    '''
     file_model = model_path
     model_obj = joblib.load(file_model)
     fingerprint_df = pd.read_csv(fp_file_path)
