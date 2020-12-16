@@ -26,15 +26,16 @@ def frp_depolymerize(mol):
         
     #main_chain_patt1 = Chem.MolFromSmarts('[#0]C[CH2][#0]') #ensure at least one carbon is unsubstituted
     #main_chain_patt2 = Chem.MolFromSmarts('[#0]C=[CH][#0]') #ensure at least one carbon is unsubstituted
-    main_chain_patt1 = Chem.MolFromSmarts('*CC*')
-    main_chain_patt2 = Chem.MolFromSmarts('*C=C*')
+    main_chain_patt1 = Chem.MolFromSmiles('*CC*')
+    main_chain_patt2 = Chem.MolFromSmiles('*C=C*')
 
     side_chain_patt1 = Chem.MolFromSmiles('C=C')
     side_chain_patt2 = Chem.MolFromSmiles('C#C')
     side_chain_patt3 = Chem.MolFromSmarts('[OH]')
+    sc_mol = ru.LinearPol(mol).SideChainMol()
     mc_match1 = mol.HasSubstructMatch(main_chain_patt1)
     mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
-    sc_matches = mol.HasSubstructMatch(side_chain_patt1) or mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
+    sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or sc_mol.HasSubstructMatch(side_chain_patt3)
     
     if not sc_matches:
         lp = ru.LinearPol(mol)
