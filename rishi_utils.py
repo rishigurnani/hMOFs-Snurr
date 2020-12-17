@@ -816,6 +816,22 @@ def side_chain_large_abs_rishi(s):
         print('!!!Failed on %s. The polymer may not have a side chain!!!' %s)
         return 0
 
+def n_acrylate(s):
+    '''
+    Return the number of acrylate groups present in the SMILES string s
+    '''
+    lp = LinearPol(s)
+    matches = lp._GetSubstructMatches(Chem.MolFromSmarts('CC(=O)O*'))
+    return len(matches)
+
+def n_amide(s):
+    '''
+    Return the number of amide groups present in the SMILES string s
+    '''
+    lp = LinearPol(s)
+    matches = lp._GetSubstructMatches(Chem.MolFromSmarts('C(=O)N'))
+    return len(matches)
+
 def gprFeatureOrder(model_path,fp_file_path):
     '''
     Return feature order of GPR model

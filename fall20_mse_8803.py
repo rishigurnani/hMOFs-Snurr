@@ -35,12 +35,12 @@ def frp_depolymerize(mol):
     sc_mol = ru.LinearPol(mol).SideChainMol()
     mc_match1 = mol.HasSubstructMatch(main_chain_patt1)
     mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
-    sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or sc_mol.HasSubstructMatch(side_chain_patt3)
+    sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
     
     if not sc_matches:
         lp = ru.LinearPol(mol)
-        n_connectors = len(set(lp.connector_inds))
-        if mc_match1 and n_connectors == 2:
+        #n_connectors = len(set(lp.connector_inds))
+        if mc_match1:
             em = Chem.EditableMol(mol)
             em.RemoveBond(lp.connector_inds[0],lp.connector_inds[1])
             em.AddBond(lp.connector_inds[0],lp.connector_inds[1],Chem.BondType.DOUBLE) #replace single bond w/ double
@@ -66,7 +66,7 @@ def frp_depolymerize(mol):
                     return None
             except:
                 return None
-        elif mc_match2 and n_connectors == 2:
+        elif mc_match2:
             em = Chem.EditableMol(mol)
             em.RemoveBond(lp.connector_inds[0],lp.connector_inds[1])
             em.AddBond(lp.connector_inds[0],lp.connector_inds[1],Chem.BondType.TRIPLE) #replace double bond w/ triple
@@ -521,3 +521,65 @@ def is_symmetric2(mol,group):
             return False
     else:
         return False
+
+def oh_cl_edit(em,match):
+    '''
+    Take in an editable mol and match and perform the bond breakage to create one monomer w/ OH and another monomer w/ Cl
+    '''
+    i_left_star,i_o_right,i_c,i_dbl0,i_o_left,i_right_star = match
+    em.RemoveBond(i_o_left,i_c)
+    em.RemoveBond(i_o_right,i_c)
+    i_cl1 = em.AddAtom(Chem.AtomFromSmiles('Cl'))
+    i_cl2 = em.AddAtom(Chem.AtomFromSmiles('Cl'))
+    em.AddBond(i_c,i_cl1,Chem.BondType.SINGLE)
+    em.AddBond(i_c,i_cl2,Chem.BondType.SINGLE)
+    new_mol=em.GetMol()
+    Chem.SanitizeMol(new_mol)
+    frag_ids = Chem.GetMolFrags(new_mol, asMols=False)
+    frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+    cl_ind = [i for i,x in enumerate(frag_ids) if i_dbl0 in x][0]
+    if cl_ind == 0:
+        oh_ind = 1
+    else:
+        oh_ind = 0
+    oh_mol = frag_mols[oh_ind]
+    cl_mol = frag_mols[cl_ind]
+    return new_mol, cl_mol, oh_mol
+
+sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
+    '*OC(=O)O*': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)]
+}
+
+
+def sg_depolymerize(mol,polymer_linkage,rxn_info):
+    '''
+    Return the monomers (one w/ fxnl group g1 and the other w/ g2) that could undergo a step-growth polymerization to form mol
+    '''
+    g1,g2,edit_function=rxn_info[0],rxn_info[1],rxn_info[2]
+    if type(mol) == str:
+        mol = Chem.MolFromSmiles(mol)
+
+    lp = ru.LinearPol(mol)
+    pm = lp.PeriodicMol()
+    matches=pm.GetSubstructMatches(polymer_linkage)
+    if len(matches) == 1:
+        em = Chem.EditableMol(pm)
+        new_mol,g1_mol,g2_mol=edit_function(em,matches[0])
+        if is_symmetric2(g1_mol,g1) and is_symmetric2(g2_mol,g2): #symmetric function checks to make sure there are only 2 matches
+            return new_mol
+        else:
+            None
+    else:
+        return None
+
+def drawRxn(p_mol,dp_func):
+    '''
+    Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol
+    '''
+    if type(p_mol) == str:
+        p_mol = Chem.MolFromSmiles(p_mol)
+    monomer = dp_func(p_mol)
+    label_dict = {
+        frp_depolymerize: 'radical/ionic polymerization'
+    }
+    return Chem.Draw.MolsToGridImage((monomer,p_mol),legends=['0', '1: After %s of 0' %(label_dict[dp_func])])
