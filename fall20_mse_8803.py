@@ -594,18 +594,18 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
         return None
     matches=pm.GetSubstructMatches(polymer_linkage)
     match_pairs = list(itertools.combinations(matches, 2))
-    if len(matches) == 2:
+    new_mols = None
+    for match_pair in match_pairs:
         em = Chem.EditableMol(pm)
-        new_mol,g1_mol,g2_mol=edit_function(em,match_pairs[0])
+        new_mol,g1_mol,g2_mol=edit_function(em,match_pair)
         if new_mol is not None:
             if is_symmetric2(g1_mol,g1) and is_symmetric2(g2_mol,g2): #symmetric function checks to make sure there are only 2 matches
-                return new_mol
-            else:
-                return None
-        else:
-            return None 
-    else:
-        return None
+                try:
+                    new_mols.append(new_mol)
+                except:
+                    new_mols = [new_mol]
+    return new_mols
+
 
 def drawRxn(p_mol,dp_func=None,extra_arg1=None,extra_arg2=None):
     '''
@@ -622,4 +622,6 @@ def drawRxn(p_mol,dp_func=None,extra_arg1=None,extra_arg2=None):
         frp_depolymerize: 'radical/ionic polymerization',
         sg_depolymerize: 'step growth polymerization'
     }
-    return Chem.Draw.MolsToGridImage((monomer,p_mol),legends=['0', '1: After %s of 0' %(label_dict[dp_func])])
+    all_mols = ru.flatten_ll([[monomer[i],p_mol] for i in range(len(monomer))])
+    all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(label_dict[dp_func])] for i in range(len(monomer))])
+    return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
