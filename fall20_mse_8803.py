@@ -449,6 +449,7 @@ def cyclodepolymerize(mol):
             return []
     else:
         return []
+
 def depolymerize(lp,patt):
     if type(lp) == str: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
@@ -523,10 +524,11 @@ def is_symmetric2(mol,group):
         return False
 
 
-def cooh_oh_edit(em,match_pair):
+def cooh_oh_edit(pm,match_pair):
     '''
     Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH
     '''   
+    em = Chem.EditableMol(pm)
     ai_r1,ai_c,ai_o_dbl,ai_o,ai_r2 = match_pair[0]
     bi_r1,bi_c,bi_o_dbl,bi_o,bi_r2 = match_pair[1]
     em.RemoveBond(ai_o,ai_r2)
@@ -541,14 +543,20 @@ def cooh_oh_edit(em,match_pair):
     if len(frag_mols) == 2:
         oh_mol1 = frag_mols[0]
         oh_mol2 = frag_mols[1]
-        return new_mol, oh_mol1, oh_mol2
+        return [(new_mol, oh_mol1, oh_mol2)]
     else:
-        return None,None,None
+        return []
 
-def oh_cl_edit(em,match_pair):
+def oh_cl_edit(pm,match_pair):
     '''
     Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ OH and another monomer w/ Cl
     '''
+    new_mols = []
+    cl_mols = []
+    oh_mols = []
+    
+    ### make the first monomer set ###
+    em = Chem.EditableMol(pm)
     ai_r,ai_o_right,ai_c,i_dbl0,ai_o_left = match_pair[0]
     bi_r,bi_o_right,bi_c,bi_dbl0,bi_o_left = match_pair[1]
     em.RemoveBond(ai_o_left,ai_c)
@@ -557,22 +565,36 @@ def oh_cl_edit(em,match_pair):
     i_cl2 = em.AddAtom(Chem.AtomFromSmiles('Cl'))
     em.AddBond(ai_c,i_cl1,Chem.BondType.SINGLE)
     em.AddBond(bi_c,i_cl2,Chem.BondType.SINGLE)
-    new_mol=em.GetMol()
-    Chem.SanitizeMol(new_mol)
+    new_mol1=em.GetMol()
+    Chem.SanitizeMol(new_mol1)
 
-    frag_ids = Chem.GetMolFrags(new_mol, asMols=False)
-    if len(frag_ids) == 2:
-        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
-        cl_ind = [i for i,x in enumerate(frag_ids) if i_dbl0 in x][0]
-        if cl_ind == 0:
-            oh_ind = 1
-        else:
-            oh_ind = 0
-        oh_mol = frag_mols[oh_ind]
-        cl_mol = frag_mols[cl_ind]
-        return new_mol, cl_mol, oh_mol
-    else:
-        return None,None,None
+    ### make the second monomer set ###
+    em2 = Chem.EditableMol(pm)
+    em2.RemoveBond(ai_o_right,ai_r)
+    em2.RemoveBond(bi_o_right,bi_r)
+    i_cl1 = em2.AddAtom(Chem.AtomFromSmiles('Cl'))
+    i_cl2 = em2.AddAtom(Chem.AtomFromSmiles('Cl'))
+    em2.AddBond(ai_r,i_cl1,Chem.BondType.SINGLE)
+    em2.AddBond(bi_r,i_cl2,Chem.BondType.SINGLE)
+    new_mol2 = em2.GetMol()
+    Chem.SanitizeMol(new_mol2)   
+
+    for new_mol in (new_mol1,new_mol2):
+        frag_ids = Chem.GetMolFrags(new_mol, asMols=False)
+        if len(frag_ids) == 2:
+            frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+            if frag_mols[0].HasSubstructMatch(Chem.MolFromSmiles('Cl')):
+                cl_ind = 0
+                oh_ind = 1
+            else:
+                cl_ind = 1
+                oh_ind = 0
+            oh_mol = frag_mols[oh_ind]
+            cl_mol = frag_mols[cl_ind]
+            new_mols.append(new_mol)
+            cl_mols.append(cl_mol)
+            oh_mols.append(oh_mol)
+    return list(zip(new_mols, cl_mols, oh_mols))
 
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
     '*OC(=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
@@ -592,19 +614,25 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
     pm = lp.PeriodicMol()
     if pm is None: #periodization failed
         return None
+    if pm.HasSubstructMatch(g1) or pm.HasSubstructMatch(g2): #chain should not have same functional groups we want to react
+        return None
     matches=pm.GetSubstructMatches(polymer_linkage)
     match_pairs = list(itertools.combinations(matches, 2))
-    new_mols = None
+    new_mols = []
     for match_pair in match_pairs:
-        em = Chem.EditableMol(pm)
-        new_mol,g1_mol,g2_mol=edit_function(em,match_pair)
-        if new_mol is not None:
-            if is_symmetric2(g1_mol,g1) and is_symmetric2(g2_mol,g2): #symmetric function checks to make sure there are only 2 matches
-                try:
+        new_mols_info = edit_function(pm,match_pair)
+        if new_mols_info is not []:
+            for new_mol_info in new_mols_info:
+                new_mol = new_mol_info[0]
+                g1_mol = new_mol_info[1]
+                g2_mol = new_mol_info[2]
+                if is_symmetric2(g1_mol,g1) and is_symmetric2(g2_mol,g2): #symmetry function includes a check to make sure there are only 2 matches
                     new_mols.append(new_mol)
-                except:
-                    new_mols = [new_mol]
-    return new_mols
+    if new_mols == []:
+        return None
+    else:
+        return new_mols
+    #return new_mols_info
 
 
 def drawRxn(p_mol,dp_func=None,extra_arg1=None,extra_arg2=None):

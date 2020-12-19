@@ -883,3 +883,8 @@ def gprFeatureOrder(model_path,fp_file_path):
 
     return names
     
+def equal_Canon(mol1,mol2):
+    '''
+    Check if two molecules are the same based on their canonical smiles
+    '''
+    return Chem.MolToSmiles(mol1) == Chem.MolToSmiles(mol2)
