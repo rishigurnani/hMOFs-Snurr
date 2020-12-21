@@ -633,7 +633,7 @@ def oh_cl_edit(pm,match_pair):
             oh_mols.append(oh_mol)
     return list(zip(new_mols, cl_mols, oh_mols))
 
-def nhx_nco_edit(pm,match_pair):
+def nh2_nco_edit(pm,match_pair):
     '''
     Take in an editable mol and match_pair and perform the bond breakage to create the possible constituent diisocyanates and a diamines
     '''
@@ -696,11 +696,76 @@ def nhx_nco_edit(pm,match_pair):
             pass
     return list(zip(new_mols, nhx_mols, nco_mols))
 
+def nh_nco_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create the possible constituent diisocyanates and a diamines
+    '''
+    new_mols = []
+    nhx_mols = []
+    nco_mols = []
+    
+    a_inh,a_ic,_,a_in = match_pair[0]
+    b_inh,b_ic,_,b_in = match_pair[1]
+
+    ### make the first monomer set ###
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(a_inh,a_ic)
+    em.RemoveBond(b_inh,b_ic)
+    #switch bond
+    em.RemoveBond(a_in,a_ic)
+    em.AddBond(a_in,a_ic,Chem.BondType.DOUBLE)
+    #switch bond
+    em.RemoveBond(b_in,b_ic)
+    em.AddBond(b_in,b_ic,Chem.BondType.DOUBLE)
+
+    new_mol1=em.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol1)
+    except:
+        pass
+
+    ### make the second monomer set ###
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(a_in,a_ic)
+    em.RemoveBond(b_in,b_ic)
+    #switch bond
+    em.RemoveBond(a_inh,a_ic)
+    em.AddBond(a_inh,a_ic,Chem.BondType.DOUBLE)
+    #switch bond
+    em.RemoveBond(b_inh,b_ic)
+    em.AddBond(b_inh,b_ic,Chem.BondType.DOUBLE)
+    new_mol2 = em.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol2) 
+    except:
+        pass  
+
+    for new_mol in (new_mol1,new_mol2):
+        try:
+            frag_ids = Chem.GetMolFrags(new_mol, asMols=False)
+            if len(frag_ids) == 2:
+                frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+                if frag_mols[0].HasSubstructMatch(Chem.MolFromSmiles('N=C=O')):
+                    nco_ind = 0
+                    nhx_ind = 1
+                else:
+                    nco_ind = 1
+                    nhx_ind = 0
+                nhx_mol = frag_mols[nhx_ind]
+                nco_mol = frag_mols[nco_ind]
+                new_mols.append(new_mol)
+                nhx_mols.append(nhx_mol)
+                nco_mols.append(nco_mol)
+        except:
+            pass
+    return list(zip(new_mols, nhx_mols, nco_mols))    
+
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
     '*OC(=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
     '*C(=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)],
     '*[NH]C(=O)*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('C(=O)[OH]'),cooh_nh2_edit)],
-    '*[NH]C(=O)N*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nhx_nco_edit)]
+    '*[NH]C(=O)[NH]*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nh2_nco_edit)],
+    '[NH]C(=O)N': [(Chem.MolFromSmarts('[NH]'),Chem.MolFromSmarts('N=C=O'),nh_nco_edit)]
 }
 
 
@@ -717,7 +782,8 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
     if pm is None: #periodization failed
         return None
     if pm.HasSubstructMatch(g1) or pm.HasSubstructMatch(g2): #chain should not have same functional groups we want to react
-        return None
+        if edit_function != nh_nco_edit: #but there are exceptions
+            return None
     matches=pm.GetSubstructMatches(polymer_linkage)
     match_pairs = list(itertools.combinations(matches, 2))
     new_mols = []
@@ -760,7 +826,7 @@ def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None):
     try:
         rxn_labels = [fwd_rxn_labels[dp_func] for i in range(len(monomer))]
     except:
-        rxn_labels = ['unknown reaction' for i in range(len(monomer))]
+        rxn_labels = ['reaction' for i in range(len(monomer))]
     all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(rxn_labels[i])] for i in range(len(monomer))])
     return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
 
@@ -771,7 +837,7 @@ class ReactionStep:
         self.reactant_frag_smiles = [Chem.MolToSmiles(mol) for mol in self.reactant_frags]
         self.n_reactants = len( self.reactant_frag_smiles)
         self.product_mol = product
-        self.product_smiles = Chem.MolToSmiles(self.product_mol)
+        self.product_smiles = Chem.MolToSmiles(self.product_mol).replace('*','[*]') #replace is there for historical reasons
         self.rxn_fn = rxn_fn
         self.catalog = None
         self.synthetic_scores = None
