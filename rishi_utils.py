@@ -832,6 +832,22 @@ def n_amide(s):
     matches = lp._GetSubstructMatches(Chem.MolFromSmarts('C(=O)N'))
     return len(matches)
 
+def n_spiro(mol):
+    '''
+    Return number of spiro centers in a MOLECULE(!!!). Works for either molecule objects or molecule SMILES.
+    '''
+    if type(mol) == str:
+        mol = Chem.MolFromSmiles(mol)
+    ri = mol.GetRingInfo()
+    ar_sets = [set(ring) for ring in ri.AtomRings()]
+    num_spiro = 0
+    for i,ring in enumerate(ar_sets):
+        for j,other_ring in enumerate(ar_sets):
+            if i>j:
+                if len(ring.intersection(other_ring)) == 1:
+                    num_spiro += 1
+    return num_spiro
+
 def gprFeatureOrder(model_path,fp_file_path):
     '''
     Return feature order of GPR model
@@ -888,3 +904,11 @@ def equal_Canon(mol1,mol2):
     Check if two molecules are the same based on their canonical smiles
     '''
     return Chem.MolToSmiles(mol1) == Chem.MolToSmiles(mol2)
+
+def arg_unique_ordered(seq):
+    '''
+    Remove duplicates from list, seq, in order. Return argument number.
+    '''
+    seen = set()
+    seen_add = seen.add
+    return [i for i,x in enumerate(seq) if not (x in seen or seen_add(x))]    

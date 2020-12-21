@@ -4,6 +4,13 @@ import itertools
 from rdkit.Chem import rdmolfiles
 from rdkit.Chem import AllChem
 import numpy as np
+import sys
+sys.path.append('/data/rgur/retrosynthesis/scscore')
+
+### set up scscore ###
+from scscore import standalone_model_numpy as sc
+sc_model = sc.SCScorer()
+sc_model.restore('/data/rgur/retrosynthesis/scscore/models/full_reaxys_model_1024uint8/model.ckpt-10654.as_numpy.json.gz')
 
 def frp_possible(mol):
     '''
@@ -523,6 +530,36 @@ def is_symmetric2(mol,group):
     else:
         return False
 
+def cooh_nh2_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH
+    '''   
+    em = Chem.EditableMol(pm)
+    a_ir1,a_in,a_ic,a_io,a_ir2 = match_pair[0]
+    b_ir1,b_in,b_ic,b_io,b_ir2 = match_pair[1]
+    em.RemoveBond(a_ic,a_in)
+    em.RemoveBond(b_ic,b_in)
+    o1 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    o2 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    em.AddBond(o1,a_ic,Chem.BondType.SINGLE)
+    em.AddBond(o2,b_ic,Chem.BondType.SINGLE)
+    new_mol=em.GetMol()
+    Chem.SanitizeMol(new_mol)
+    frag_ids = Chem.GetMolFrags(new_mol)
+    
+    if len(frag_ids) == 2:
+        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+        if frag_mols[0].HasSubstructMatch(Chem.MolFromSmarts('[NH2]')):
+            nh2_ind = 0
+            cooh_ind = 1
+        else:
+            nh2_ind = 1
+            cooh_ind = 0
+        nh2_mol = frag_mols[nh2_ind]
+        cooh_mol = frag_mols[cooh_ind]
+        return [(new_mol, nh2_mol, cooh_mol)]
+    else:
+        return []
 
 def cooh_oh_edit(pm,match_pair):
     '''
@@ -596,9 +633,74 @@ def oh_cl_edit(pm,match_pair):
             oh_mols.append(oh_mol)
     return list(zip(new_mols, cl_mols, oh_mols))
 
+def nhx_nco_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create the possible constituent diisocyanates and a diamines
+    '''
+    new_mols = []
+    nhx_mols = []
+    nco_mols = []
+    
+    ### make the first monomer set ###
+    em = Chem.EditableMol(pm)
+    a_ir1,a_inh,a_ic,a_io,a_in,a_ir = match_pair[0]
+    b_ir1,b_inh,b_ic,b_io,b_in,b_ir = match_pair[1]
+    em.RemoveBond(a_inh,a_ic)
+    em.RemoveBond(b_inh,b_ic)
+    #switch bond
+    em.RemoveBond(a_in,a_ic)
+    em.AddBond(a_in,a_ic,Chem.BondType.DOUBLE)
+    #switch bond
+    em.RemoveBond(b_in,b_ic)
+    em.AddBond(b_in,b_ic,Chem.BondType.DOUBLE)
+
+    new_mol1=em.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol1)
+    except:
+        pass
+
+    ### make the second monomer set ###
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(a_in,a_ic)
+    em.RemoveBond(b_in,b_ic)
+    #switch bond
+    em.RemoveBond(a_inh,a_ic)
+    em.AddBond(a_inh,a_ic,Chem.BondType.DOUBLE)
+    #switch bond
+    em.RemoveBond(b_inh,b_ic)
+    em.AddBond(b_inh,b_ic,Chem.BondType.DOUBLE)
+    new_mol2 = em.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol2) 
+    except:
+        pass  
+
+    for new_mol in (new_mol1,new_mol2):
+        try:
+            frag_ids = Chem.GetMolFrags(new_mol, asMols=False)
+            if len(frag_ids) == 2:
+                frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+                if frag_mols[0].HasSubstructMatch(Chem.MolFromSmiles('N=C=O')):
+                    nco_ind = 0
+                    nhx_ind = 1
+                else:
+                    nco_ind = 1
+                    nhx_ind = 0
+                nhx_mol = frag_mols[nhx_ind]
+                nco_mol = frag_mols[nco_ind]
+                new_mols.append(new_mol)
+                nhx_mols.append(nhx_mol)
+                nco_mols.append(nco_mol)
+        except:
+            pass
+    return list(zip(new_mols, nhx_mols, nco_mols))
+
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
     '*OC(=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
-    '*C(=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)]
+    '*C(=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)],
+    '*[NH]C(=O)*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('C(=O)[OH]'),cooh_nh2_edit)],
+    '*[NH]C(=O)N*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nhx_nco_edit)]
 }
 
 
@@ -635,21 +737,89 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
     #return new_mols_info
 
 
-def drawRxn(p_mol,dp_func=None,extra_arg1=None,extra_arg2=None):
+fwd_rxn_labels = {
+    frp_depolymerize: 'radical/ionic polymerization',
+    sg_depolymerize: 'step growth polymerization'
+}
+
+def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None):
     '''
-    Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol
+    Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol. extra_args are for compatability with step_growth.
     '''
     if type(p_mol) == str:
         p_mol = Chem.MolFromSmiles(p_mol)
-    try:
-        monomer = dp_func(p_mol)
-    except:
-        dp_func = sg_depolymerize
-        monomer = dp_func(p_mol,extra_arg1,extra_arg2)
-    label_dict = {
-        frp_depolymerize: 'radical/ionic polymerization',
-        sg_depolymerize: 'step growth polymerization'
-    }
+    if monomer is None:
+        try:
+            monomer = dp_func(p_mol)
+        except:
+            dp_func = sg_depolymerize
+            monomer = dp_func(p_mol,extra_arg1,extra_arg2)
+    if type(monomer) != list:
+        monomer = [monomer]
     all_mols = ru.flatten_ll([[monomer[i],p_mol] for i in range(len(monomer))])
-    all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(label_dict[dp_func])] for i in range(len(monomer))])
+    try:
+        rxn_labels = [fwd_rxn_labels[dp_func] for i in range(len(monomer))]
+    except:
+        rxn_labels = ['unknown reaction' for i in range(len(monomer))]
+    all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(rxn_labels[i])] for i in range(len(monomer))])
     return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
+
+class ReactionStep:
+    def __init__(self, reactant, product, rxn_fn): 
+        self.reactant_mol = reactant
+        self.reactant_frags = Chem.GetMolFrags(self.reactant_mol, asMols=True)
+        self.reactant_frag_smiles = [Chem.MolToSmiles(mol) for mol in self.reactant_frags]
+        self.n_reactants = len( self.reactant_frag_smiles)
+        self.product_mol = product
+        self.product_smiles = Chem.MolToSmiles(self.product_mol)
+        self.rxn_fn = rxn_fn
+        self.catalog = None
+        self.synthetic_scores = None
+        try:
+            self.fwd_rxn_label = fwd_rxn_labels[self.rxn_fn]
+        except:
+            self.fwd_rxn_label = 'Reaction Unknown'
+    
+    def SearchReactants(self,mol_set):
+        self.catalog = np.array([x in mol_set for x in self.reactant_frag_smiles])
+        return self.catalog
+    
+    def DrawStep(self):
+        return drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn)
+    
+    def DrawCatalog(self,mol_set=None):
+        if self.catalog is None:
+            if mol_set is None:
+                raise LookupError('No catalog or mol_set specified')
+            else:
+                _ = self.SearchReactants(mol_set)
+        else:
+            labels = []
+            for i in self.catalog:
+                if i == True:
+                    labels.append('In eMolecules set')
+                else:
+                    labels.append('Not in eMolecules set')
+            return Chem.Draw.MolsToGridImage(self.reactant_frags,legends=labels,molsPerRow=2,subImgSize=(400, 400))
+    
+    def SyntheticScore(self):
+        if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
+            raise LookupError('Catalog is equal to None')
+        else:
+            def helper(ind):
+                if self.catalog[ind]:
+                    return 1
+                else:
+                    return sc_model.get_score_from_smi(self.reactant_frag_smiles[ind])[1] #return second argument, first is smiles
+            self.synthetic_scores = np.array( list(map(lambda x: helper(x), range(self.n_reactants))) )
+    
+    def SetRepresentation(self):
+        '''
+        Return a representation of the reactionStep which can be used to remove duplicates
+        '''
+        return (self.product_smiles, ' '.join(sorted(self.reactant_frag_smiles)), self.rxn_fn)
+
+
+class ReactionPath:
+    def __init__(self, reaction_step_arr):
+        self.reaction_step_arr = reaction_step_arr
