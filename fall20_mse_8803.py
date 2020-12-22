@@ -760,12 +760,50 @@ def nh_nco_edit(pm,match_pair):
             pass
     return list(zip(new_mols, nhx_mols, nco_mols))    
 
+def cl_NaO_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH
+    '''   
+    _,_,_,_,_,ai_c,ai_o,_,_ = match_pair[0]
+    _,_,_,_,_,bi_c,bi_o,_,_ = match_pair[1]
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(ai_c,ai_o)
+    em.RemoveBond(bi_c,bi_o)
+    #add atoms
+    cl1=em.AddAtom(Chem.AtomFromSmiles('Cl'))
+    cl2=em.AddAtom(Chem.AtomFromSmiles('Cl'))
+    na1=em.AddAtom(Chem.AtomFromSmiles('[Na]'))
+    na2=em.AddAtom(Chem.AtomFromSmiles('[Na]'))
+    #add bonds
+    em.AddBond(ai_o,na1,Chem.BondType.SINGLE)
+    em.AddBond(bi_o,na2,Chem.BondType.SINGLE)
+    em.AddBond(ai_c,cl1,Chem.BondType.SINGLE)
+    em.AddBond(bi_c,cl2,Chem.BondType.SINGLE)
+    #get mol
+    new_mol=em.GetMol()
+    Chem.SanitizeMol(new_mol)
+    frag_ids = Chem.GetMolFrags(new_mol)
+    if len(frag_ids) == 2:
+        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+        if frag_mols[0].HasSubstructMatch(Chem.MolFromSmarts('Cl')):
+            cl_ind = 0
+            na_ind = 1
+        else:
+            cl_ind = 1
+            na_ind = 0
+        cl_mol = frag_mols[cl_ind]
+        na_mol = frag_mols[na_ind]
+        return [(new_mol, cl_mol, na_mol)]
+    else:
+        return []
+
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
     '*OC(=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
     '*C(=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)],
     '*[NH]C(=O)*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('C(=O)[OH]'),cooh_nh2_edit)],
     '*[NH]C(=O)[NH]*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nh2_nco_edit)],
-    '[NH]C(=O)N': [(Chem.MolFromSmarts('[NH]'),Chem.MolFromSmarts('N=C=O'),nh_nco_edit)]
+    '[NH]C(=O)N': [(Chem.MolFromSmarts('[NH]'),Chem.MolFromSmarts('N=C=O'),nh_nco_edit)],
+    'O=Cc1ccc(O)cc1': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmiles('O[Na]'),cl_NaO_edit)]
 }
 
 
