@@ -940,13 +940,13 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
         for j in range(n_cols):
             try:
                 ax = axes[i][j]
-            except:
+            except: #in case there is only one row
                 ax = axes[j]
             n = n_cols*i + j
             try:
                 ax.imshow( mol_ims[n] )
                 ax.set_xlabel( labels[n] )
-            except:
+            except: 
                 pass
             #clean each axis
             for s in ax.spines.keys():
@@ -960,3 +960,17 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
     #plt.subplots_adjust( top=(1-downshift) )
     plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0, rect=[0, 0, 1, 1 - downshift])
     plt.show()
+    #return fig
+
+import io
+#import cv2
+# def get_img_from_fig(fig, dpi=180):
+#     buf = io.BytesIO()
+#     fig.savefig(buf, format="png", dpi=dpi)
+#     buf.seek(0)
+#     img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+#     buf.close()
+#     img = cv2.imdecode(img_arr, 1)
+#     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+#     return img

@@ -5,6 +5,7 @@ from rdkit.Chem import rdmolfiles
 from rdkit.Chem import AllChem
 import numpy as np
 import sys
+import matplotlib.pyplot as plt
 sys.path.append('/data/rgur/retrosynthesis/scscore')
 
 ### set up scscore ###
@@ -994,14 +995,16 @@ class ReactionStep:
             self.fwd_rxn_label = 'Reaction Unknown'
     
     def SearchReactants(self,mol_set):
-        self.catalog = np.array([x in mol_set for x in self.reactant_frag_smiles])
+        if self.catalog is None:
+            self.catalog = np.array([x in mol_set for x in self.reactant_frag_smiles])
         return self.catalog
     
     def DrawStep(self):
         title = 'Reaction'
         if self.poly_syn_score is not None:
             title += '\nSynthetic Complexity: {:.2f}'.format( self.poly_syn_score )
-        return drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=(6, 1.5*self.n_reactants),title=title)
+        drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=(6, 1.5*self.n_reactants),title=title)
+
     
     def DrawCatalog(self,mol_set=None):
         if self.catalog is None:
@@ -1023,17 +1026,33 @@ class ReactionStep:
                     labels[ind] = label
             return ru.MolsToGridImage(self.reactant_frags,labels=labels,molsPerRow=2,ImgSize=(6, 1.5*self.n_reactants),title='Reactants')
     
+    def DrawDetail(self,mol_set=None):
+        a = self.DrawStep()
+        b = self.DrawCatalog(mol_set)
+        fig, axes = plt.subplots(nrows=1, ncols=2)
+        axes[0].imshow( ru.get_img_from_fig(a) )
+        axes[1].imshow( ru.get_img_from_fig(b) )
+        #clean each axis
+        for ax in axes:
+            for s in ax.spines.keys():
+                ax.spines[s].set_visible(False)    
+            ax.get_xaxis().set_ticks([])
+            ax.get_yaxis().set_ticks([])
+        fig.show()
+
+    
     def SyntheticScore(self):
         if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
             raise LookupError('Catalog is equal to None')
-        else:
+        elif self.poly_syn_score is None:
             def helper(ind):
                 if self.catalog[ind]:
                     return 1
                 else:
                     return sc_model.get_score_from_smi(self.reactant_frag_smiles[ind])[1] #return second argument, first is smiles
             self.synthetic_scores = np.array( list(map(lambda x: helper(x), range(self.n_reactants))) )
-            self.poly_syn_score = np.product(self.synthetic_scores)
+            self.poly_syn_score = float(np.product(self.synthetic_scores))
+        return self.poly_syn_score
     
     def SetRepresentation(self):
         '''
