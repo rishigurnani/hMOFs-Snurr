@@ -32,6 +32,7 @@ sys.path.append('/home/appls/machine_learning/PolymerGenome/src/common_lib')
 import auxFunctions as aF
 from rdkit.Chem import rdmolfiles
 from rdkit.Chem.Draw import SimilarityMaps
+import matplotlib.pyplot as plt
 
 def pd_load(path):
     try:
@@ -912,3 +913,46 @@ def arg_unique_ordered(seq):
     seen = set()
     seen_add = seen.add
     return [i for i,x in enumerate(seq) if not (x in seen or seen_add(x))]    
+
+def n_spiro_vol(s):
+    '''
+    Return the number of spiro rings per volume of s. If error return 0.
+    '''
+    s = s.replace('*','H')
+    mol = Chem.MolFromSmiles(s)
+    num_spiro = n_spiro(mol)
+    try:
+        Chem.AllChem.EmbedMolecule(mol)
+        return num_spiro/Chem.AllChem.ComputeMolVolume(mol)
+    except:
+        return 0   
+
+def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5)):
+    mol_ims = [Chem.Draw.MolToImage(mol) for mol in mol_ls]
+    n_mols = len(mol_ls)
+    n_cols = molsPerRow
+    n_rows = int(np.ceil( n_mols / 2 ))
+    if labels is None:
+        labels = ['' for x in mol_ls]
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols)
+    fig.set_size_inches(ImgSize[0], ImgSize[1], forward=True)
+    for i in range(n_rows):
+        for j in range(n_cols):
+            try:
+                ax = axes[i][j]
+            except:
+                ax = axes[j]
+            n = n_cols*i + j
+            try:
+                ax.imshow( mol_ims[n] )
+                ax.set_xlabel( labels[n] )
+            except:
+                pass
+            #clean each axis
+            for s in ax.spines.keys():
+                ax.spines[s].set_visible(False)    
+            ax.get_xaxis().set_ticks([])
+            ax.get_yaxis().set_ticks([])
+    
+    plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0)
+    plt.show()

@@ -67,7 +67,7 @@ def frp_depolymerize(mol):
                 Chem.AllChem.EmbedMolecule(frags[1])
                 volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
                 if np.min(volumes) < 20.5: #35.7 is the volume of C(F)(F). 20.5 is the volume of C(H)(H)
-                    return new_mol
+                    return [new_mol]
                 else:
                     #print(np.min(volumes))
                     return None
@@ -93,7 +93,7 @@ def frp_depolymerize(mol):
                 Chem.AllChem.EmbedMolecule(frags[1])
                 volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
                 if np.min(volumes) < 20.43: #35.7 is the volume of C(F)(F). 20.43 is the volume of C(H)(H)
-                    return new_mol
+                    return [new_mol]
                 else:
                     #print(np.min(volumes))
                     return None
@@ -294,6 +294,7 @@ def ro_depolymerize2(lp):
     patt5=Chem.MolFromSmiles('COC=N')
     patt_oh=Chem.MolFromSmarts('[OX2H]')
     try:
+        print('here1')
         pm = lp.PeriodicMol()
         am = lp.AlphaMol()
         mcm = lp.MainChainMol()
@@ -303,6 +304,7 @@ def ro_depolymerize2(lp):
                           len(mcm.GetSubstructMatches(patt5)),
                           len(am.GetSubstructMatches(patt5))) #exo-imino
         if alpha_match_len[0] == 1 or alpha_match_len[1] == 1 or alpha_match_len[4] == 1 or alpha_match_len[5] == 1:
+            print('here2')
             alpha_match_len = list(alpha_match_len)
             alpha_match_len[2] = 0 #if we have an ester third group should be removed
             alpha_match_len[3] = 0
@@ -311,16 +313,19 @@ def ro_depolymerize2(lp):
             alpha_match_len[5] == 0 #endo-inimo overshadows exo-imino
         argmax = np.argmax(alpha_match_len)
         if sorted(alpha_match_len) == [0, 0, 0, 0, 0, 1]: #make sure groups exist on alpha_chain
+            print('here3')
             lactone = len(pm.GetSubstructMatches(patt2))
             cyc_ether = len(pm.GetSubstructMatches(patt3))
             endo_imino_cyc_ether = len(pm.GetSubstructMatches(patt5))
             if pm.HasSubstructMatch(patt_oh) == True: 
+                print('here4')
                 lactone = 0 #OH for lactone is no good
                 cyc_ether = 0 #OH for cyclic ether is no good
                 endo_imino_cyc_ether = 0 #OH for endo_imino_cyc_ether is no good
             tot_match_len = (len(pm.GetSubstructMatches(patt1)),lactone,cyc_ether,
                             len(pm.GetSubstructMatches(patt4)),endo_imino_cyc_ether,endo_imino_cyc_ether)
             if tot_match_len[argmax] == alpha_match_len[argmax]: #make sure no groups are on side chains
+                print('here5')
                 return (lp.mol,pm)
             else:
                 return None
@@ -762,7 +767,8 @@ def nh_nco_edit(pm,match_pair):
 
 def cl_NaO_edit(pm,match_pair):
     '''
-    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH.
+    Source: Odian, Principles of Polymerization, 4E, p.149
     '''   
     _,_,_,_,_,ai_c,ai_o,_,_ = match_pair[0]
     _,_,_,_,_,bi_c,bi_o,_,_ = match_pair[1]
@@ -797,13 +803,107 @@ def cl_NaO_edit(pm,match_pair):
     else:
         return []
 
+def cooh_nh2_oh_ar_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ both OH and NH2. 'ar' denotes that the 5-membered ring in polymer is aromatic 
+    Source: Odian, Principles of Polymerization, 4E, p.162
+    '''   
+    a_ic,a_in,_,_,a_io = match_pair[0]
+    b_ic,b_in,_,_,b_io = match_pair[1]
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(a_ic,a_io)
+    em.RemoveBond(b_ic,b_io)
+    em.RemoveBond(a_ic,a_in)
+    em.RemoveBond(b_ic,b_in)
+
+    #remove and replace aromatic bonds
+    em.ReplaceAtom(a_ic,Chem.AtomFromSmiles('C'))
+    em.ReplaceAtom(b_ic,Chem.AtomFromSmiles('C'))
+
+    em.ReplaceAtom(a_in,Chem.AtomFromSmiles('N'))
+    em.ReplaceAtom(b_in,Chem.AtomFromSmiles('N'))
+
+    em.ReplaceAtom(a_io,Chem.AtomFromSmiles('O'))
+    em.ReplaceAtom(b_io,Chem.AtomFromSmiles('O'))
+
+    #add =O(OH) 
+    dblO1 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    dblO2 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    o1 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    o2 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    em.AddBond(a_ic,dblO1,Chem.BondType.DOUBLE)
+    em.AddBond(b_ic,dblO2,Chem.BondType.DOUBLE)
+    em.AddBond(a_ic,o1,Chem.BondType.SINGLE)
+    em.AddBond(b_ic,o2,Chem.BondType.SINGLE)
+
+    new_mol=em.GetMol()
+    Chem.SanitizeMol(new_mol)
+
+    frag_ids = Chem.GetMolFrags(new_mol)
+    if len(frag_ids) == 2:
+        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+        if frag_mols[0].HasSubstructMatch(Chem.MolFromSmarts('[NH2]')):
+            nh2_ind = 0
+            cooh_ind = 1
+        else:
+            nh2_ind = 1
+            cooh_ind = 0
+        nh2_mol = frag_mols[nh2_ind]
+        cooh_mol = frag_mols[cooh_ind]
+        return [(new_mol, cooh_mol, nh2_mol)]
+    else:
+        return []
+
+def cooh_nh2_oh_al_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ both OH and NH2. 'al' denotes that the 5-membered ring in polymer is aliphatic 
+    Source: Odian, Principles of Polymerization, 4E, p.162
+    '''   
+    a_ic,a_in,_,_,a_io = match_pair[0]
+    b_ic,b_in,_,_,b_io = match_pair[1]
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(a_ic,a_io)
+    em.RemoveBond(b_ic,b_io)
+    em.RemoveBond(a_ic,a_in)
+    em.RemoveBond(b_ic,b_in)
+
+    #add =O(OH) 
+    dblO1 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    dblO2 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    o1 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    o2 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    em.AddBond(a_ic,dblO1,Chem.BondType.DOUBLE)
+    em.AddBond(b_ic,dblO2,Chem.BondType.DOUBLE)
+    em.AddBond(a_ic,o1,Chem.BondType.SINGLE)
+    em.AddBond(b_ic,o2,Chem.BondType.SINGLE)
+
+    new_mol=em.GetMol()
+    Chem.SanitizeMol(new_mol)
+
+    frag_ids = Chem.GetMolFrags(new_mol)
+    if len(frag_ids) == 2:
+        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+        if frag_mols[0].HasSubstructMatch(Chem.MolFromSmarts('[NH2]')):
+            nh2_ind = 0
+            cooh_ind = 1
+        else:
+            nh2_ind = 1
+            cooh_ind = 0
+        nh2_mol = frag_mols[nh2_ind]
+        cooh_mol = frag_mols[cooh_ind]
+        return [(new_mol, cooh_mol, nh2_mol)]
+    else:
+        return []
+
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
     '*OC(=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
     '*C(=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)],
     '*[NH]C(=O)*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('C(=O)[OH]'),cooh_nh2_edit)],
     '*[NH]C(=O)[NH]*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nh2_nco_edit)],
     '[NH]C(=O)N': [(Chem.MolFromSmarts('[NH]'),Chem.MolFromSmarts('N=C=O'),nh_nco_edit)],
-    'O=Cc1ccc(O)cc1': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmiles('O[Na]'),cl_NaO_edit)]
+    'O=Cc1ccc(O)cc1': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmiles('O[Na]'),cl_NaO_edit)],
+    'C1=NccO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_ar_edit)],
+    'C1=NCCO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_al_edit)]
 }
 
 
@@ -819,9 +919,16 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
     pm = lp.PeriodicMol()
     if pm is None: #periodization failed
         return None
-    if pm.HasSubstructMatch(g1) or pm.HasSubstructMatch(g2): #chain should not have same functional groups we want to react
-        if edit_function != nh_nco_edit: #but there are exceptions
-            return None
+    try: #sometimes g1 and g2 are given as lists. If so they will fail below.
+        if pm.HasSubstructMatch(g1) or pm.HasSubstructMatch(g2): #chain should not have same functional groups we want to react
+            if edit_function != nh_nco_edit: #but there are exceptions
+                return None
+        g1 = [g1] #do this so symmetry check will have an iterable
+        g2 = [g2] #do this so symmetry check will have an iterable
+    except:
+        if any([pm.HasSubstructMatch(x) for x in g1] + [pm.HasSubstructMatch(x) for x in g2]): #chain should not have same functional groups we want to react
+            if edit_function != nh_nco_edit: #but there are exceptions
+                return None        
     matches=pm.GetSubstructMatches(polymer_linkage)
     match_pairs = list(itertools.combinations(matches, 2))
     new_mols = []
@@ -832,7 +939,7 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
                 new_mol = new_mol_info[0]
                 g1_mol = new_mol_info[1]
                 g2_mol = new_mol_info[2]
-                if is_symmetric2(g1_mol,g1) and is_symmetric2(g2_mol,g2): #symmetry function includes a check to make sure there are only 2 matches
+                if all([is_symmetric2(g1_mol,x) for x in g1] + [is_symmetric2(g2_mol,x) for x in g2]): #symmetry function includes a check to make sure there are only 2 matches
                     new_mols.append(new_mol)
     if new_mols == []:
         return None
@@ -904,7 +1011,11 @@ class ReactionStep:
                     labels.append('In eMolecules set')
                 else:
                     labels.append('Not in eMolecules set')
-            return Chem.Draw.MolsToGridImage(self.reactant_frags,legends=labels,molsPerRow=2,subImgSize=(400, 400))
+            if self.synthetic_scores is not None:
+                for ind in range(self.n_reactants):
+                    label = labels[ind] + '\nSCScore: {:.2f}'.format( self.synthetic_scores[ind] )
+                    labels[ind] = label
+            return ru.MolsToGridImage(self.reactant_frags,labels=labels,molsPerRow=2,ImgSize=(6, 1.5*self.n_reactants))
     
     def SyntheticScore(self):
         if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
