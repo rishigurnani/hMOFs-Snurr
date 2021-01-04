@@ -948,10 +948,9 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
         return new_mols
     #return new_mols_info
 
-
 fwd_rxn_labels = {
-    frp_depolymerize: 'radical/ionic polymerization',
-    sg_depolymerize: 'step growth polymerization'
+    'frp_depolymerize': 'radical/ionic polymerization',
+    'sg_depolymerize': 'step growth polymerization'
 }
 
 def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title=''):
@@ -985,7 +984,7 @@ class ReactionStep:
         self.n_reactants = len( self.reactant_frag_smiles)
         self.product_mol = product
         self.product_smiles = Chem.MolToSmiles(self.product_mol).replace('*','[*]') #replace is there for historical reasons
-        self.rxn_fn = rxn_fn
+        self.rxn_fn = str(rxn_fn).split(' ')[1]
         self.catalog = None
         self.synthetic_scores = None
         self.poly_syn_score = None

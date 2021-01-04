@@ -928,7 +928,7 @@ def n_spiro_vol(s):
         return 0   
 
 def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
-    mol_ims = [Chem.Draw.MolToImage(mol) for mol in mol_ls]
+    mol_ims = [Chem.Draw.MolToImage(mol,size=(800,800)) for mol in mol_ls]
     n_mols = len(mol_ls)
     n_cols = molsPerRow
     n_rows = int(np.ceil( n_mols / 2 ))
