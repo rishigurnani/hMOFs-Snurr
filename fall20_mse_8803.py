@@ -953,7 +953,7 @@ fwd_rxn_labels = {
     sg_depolymerize: 'step growth polymerization'
 }
 
-def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None):
+def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title=''):
     '''
     Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol. extra_args are for compatability with step_growth.
     '''
@@ -973,7 +973,8 @@ def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None):
     except:
         rxn_labels = ['reaction' for i in range(len(monomer))]
     all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(rxn_labels[i])] for i in range(len(monomer))])
-    return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
+    #return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
+    return ru.MolsToGridImage(all_mols,labels=all_legends,molsPerRow=2,ImgSize=imgSize,title=title)
 
 class ReactionStep:
     def __init__(self, reactant, product, rxn_fn): 
@@ -986,6 +987,7 @@ class ReactionStep:
         self.rxn_fn = rxn_fn
         self.catalog = None
         self.synthetic_scores = None
+        self.poly_syn_score = None
         try:
             self.fwd_rxn_label = fwd_rxn_labels[self.rxn_fn]
         except:
@@ -996,7 +998,10 @@ class ReactionStep:
         return self.catalog
     
     def DrawStep(self):
-        return drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn)
+        title = 'Reaction'
+        if self.poly_syn_score is not None:
+            title += '\nSynthetic Complexity: {:.2f}'.format( self.poly_syn_score )
+        return drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=(6, 1.5*self.n_reactants),title=title)
     
     def DrawCatalog(self,mol_set=None):
         if self.catalog is None:
@@ -1006,16 +1011,17 @@ class ReactionStep:
                 _ = self.SearchReactants(mol_set)
         else:
             labels = []
-            for i in self.catalog:
+            for ind,i in enumerate(self.catalog):
+                mol_index = chr(65+ind)
                 if i == True:
-                    labels.append('In eMolecules set')
+                    labels.append('%s: In eMolecules set' %mol_index)
                 else:
-                    labels.append('Not in eMolecules set')
+                    labels.append('%s: Not in eMolecules set' %mol_index)
             if self.synthetic_scores is not None:
                 for ind in range(self.n_reactants):
                     label = labels[ind] + '\nSCScore: {:.2f}'.format( self.synthetic_scores[ind] )
                     labels[ind] = label
-            return ru.MolsToGridImage(self.reactant_frags,labels=labels,molsPerRow=2,ImgSize=(6, 1.5*self.n_reactants))
+            return ru.MolsToGridImage(self.reactant_frags,labels=labels,molsPerRow=2,ImgSize=(6, 1.5*self.n_reactants),title='Reactants')
     
     def SyntheticScore(self):
         if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
@@ -1027,6 +1033,7 @@ class ReactionStep:
                 else:
                     return sc_model.get_score_from_smi(self.reactant_frag_smiles[ind])[1] #return second argument, first is smiles
             self.synthetic_scores = np.array( list(map(lambda x: helper(x), range(self.n_reactants))) )
+            self.poly_syn_score = np.product(self.synthetic_scores)
     
     def SetRepresentation(self):
         '''

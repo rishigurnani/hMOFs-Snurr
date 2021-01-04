@@ -927,7 +927,7 @@ def n_spiro_vol(s):
     except:
         return 0   
 
-def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5)):
+def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
     mol_ims = [Chem.Draw.MolToImage(mol) for mol in mol_ls]
     n_mols = len(mol_ls)
     n_cols = molsPerRow
@@ -954,5 +954,9 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5)):
             ax.get_xaxis().set_ticks([])
             ax.get_yaxis().set_ticks([])
     
-    plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0)
+    fig.suptitle(title, fontsize=16)
+    
+    downshift = title.count('\n')*.15
+    #plt.subplots_adjust( top=(1-downshift) )
+    plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0, rect=[0, 0, 1, 1 - downshift])
     plt.show()
