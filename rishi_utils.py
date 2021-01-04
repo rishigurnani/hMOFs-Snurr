@@ -940,8 +940,11 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
         for j in range(n_cols):
             try:
                 ax = axes[i][j]
-            except: #in case there is only one row
-                ax = axes[j]
+            except: 
+                try: #in case there is only one row
+                    ax = axes[j]
+                except: # in case these is only one row and one column
+                    ax = axes
             n = n_cols*i + j
             try:
                 ax.imshow( mol_ims[n] )

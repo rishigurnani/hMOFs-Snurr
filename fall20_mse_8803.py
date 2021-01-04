@@ -977,14 +977,15 @@ def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgS
     return ru.MolsToGridImage(all_mols,labels=all_legends,molsPerRow=2,ImgSize=imgSize,title=title)
 
 class ReactionStep:
-    def __init__(self, reactant, product, rxn_fn): 
+    def __init__(self, reactant, product, rxn_fn_hash): 
         self.reactant_mol = reactant
         self.reactant_frags = Chem.GetMolFrags(self.reactant_mol, asMols=True)
         self.reactant_frag_smiles = [Chem.MolToSmiles(mol) for mol in self.reactant_frags]
         self.n_reactants = len( self.reactant_frag_smiles)
         self.product_mol = product
         self.product_smiles = Chem.MolToSmiles(self.product_mol).replace('*','[*]') #replace is there for historical reasons
-        self.rxn_fn = str(rxn_fn).split(' ')[1]
+        self.rxn_fn_hash = rxn_fn_hash
+        self.rxn_fn = str(rxn_fn_hash).split(' ')[1]
         self.catalog = None
         self.synthetic_scores = None
         self.poly_syn_score = None
@@ -1002,7 +1003,7 @@ class ReactionStep:
         title = 'Reaction'
         if self.poly_syn_score is not None:
             title += '\nSynthetic Complexity: {:.2f}'.format( self.poly_syn_score )
-        drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=(6, 1.5*self.n_reactants),title=title)
+        drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=(6, 4),title=title)
 
     
     def DrawCatalog(self,mol_set=None):
@@ -1023,7 +1024,7 @@ class ReactionStep:
                 for ind in range(self.n_reactants):
                     label = labels[ind] + '\nSCScore: {:.2f}'.format( self.synthetic_scores[ind] )
                     labels[ind] = label
-            return ru.MolsToGridImage(self.reactant_frags,labels=labels,molsPerRow=2,ImgSize=(6, 1.5*self.n_reactants),title='Reactants')
+            return ru.MolsToGridImage(self.reactant_frags,labels=labels,molsPerRow=min(2,self.n_reactants),ImgSize=(6, 1.5*self.n_reactants),title='Reactants')
     
     def DrawDetail(self,mol_set=None):
         a = self.DrawStep()
