@@ -932,6 +932,8 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
     n_mols = len(mol_ls)
     n_cols = molsPerRow
     n_rows = int(np.ceil( n_mols / 2 ))
+    if molsPerRow == 1: 
+        ImgSize=(3, 3)
     if labels is None:
         labels = ['' for x in mol_ls]
     fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols)

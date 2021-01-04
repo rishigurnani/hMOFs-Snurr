@@ -25,30 +25,38 @@ def frp_possible(mol):
     
     return mol.HasSubstructMatch(main_chain_patt) & ( not mol.HasSubstructMatch(side_chain_patt) )
 
-def frp_depolymerize(mol):
+def frp_depolymerize(mol,strict=True):
     '''
-    Determine if this polymer, mol (either SMILES string or rdkit mol object), is a candidate for free-radical polymerization.
+    Determine if this polymer, mol (either SMILES string or rdkit mol object), is a candidate for free-radical polymerization. If 'strict' is True, then some heuristics will be enforced based on the suggestions of Dr. Sotzing.
     '''
     if type(mol) == str:
         mol = Chem.MolFromSmiles(mol)
         
     #main_chain_patt1 = Chem.MolFromSmarts('[#0]C[CH2][#0]') #ensure at least one carbon is unsubstituted
     #main_chain_patt2 = Chem.MolFromSmarts('[#0]C=[CH][#0]') #ensure at least one carbon is unsubstituted
-    main_chain_patt1 = Chem.MolFromSmiles('*CC*')
-    main_chain_patt2 = Chem.MolFromSmiles('*C=C*')
+    if strict:
+        main_chain_patt1 = Chem.MolFromSmarts('[#0]C[CH2][#0]')
+        main_chain_patt2 = Chem.MolFromSmiles('*C=[CH]*')
+    else:
+        main_chain_patt1 = Chem.MolFromSmiles('*CC*')
+        main_chain_patt2 = Chem.MolFromSmiles('*C=C*')
 
     side_chain_patt1 = Chem.MolFromSmiles('C=C')
     side_chain_patt2 = Chem.MolFromSmiles('C#C')
     side_chain_patt3 = Chem.MolFromSmarts('[OH]')
     sc_mol = ru.LinearPol(mol).SideChainMol()
-    mc_match1 = mol.HasSubstructMatch(main_chain_patt1)
+    mc_match1 = mol.GetSubstructMatch(main_chain_patt1)
     mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
     sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
     
     if not sc_matches:
         lp = ru.LinearPol(mol)
         #n_connectors = len(set(lp.connector_inds))
-        if mc_match1:
+        if len(mc_match1) > 0:
+            if strict:
+                if mol.GetAtoms()[mc_match1[1]].GetNumImplicitHs() < 1: #cieling temperature AND ring consideration
+                    return None
+            
             em = Chem.EditableMol(mol)
             em.RemoveBond(lp.connector_inds[0],lp.connector_inds[1])
             em.AddBond(lp.connector_inds[0],lp.connector_inds[1],Chem.BondType.DOUBLE) #replace single bond w/ double
