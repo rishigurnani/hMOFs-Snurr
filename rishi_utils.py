@@ -710,7 +710,17 @@ class LinearPol(Chem.rdchem.Mol):
             Chem.SanitizeMol(new_mol)
             return new_mol
         except:
-            return None   
+            return None
+
+    def multiplySmiles(self,n):
+        '''
+        Return a LinearPol which is n times repeated from itself
+        '''   
+        add_lp = LinearPol(self.mol)
+        for i in range(n-1):
+            add_lp = LinearPol( bind_frags(self.mol,self.star_inds[1],add_lp.mol,add_lp.star_inds[0],self.connector_inds[1],add_lp.connector_inds[0]) )
+        return add_lp
+            
     
 def pltDensity(property_X,property_Y,N_BINS=100,cmapName='plasma_r',order='random',count_thresh=None):
     '''
@@ -979,3 +989,32 @@ import io
 #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 #     return img
+
+def bind_frags(m1,m1_tail,m2,m2_head,m1_connector=None,m2_connector=None):
+    '''
+    Bind MOLECULES OBJECTS, m1 and m2, together at connection points m1_tail and m2_head
+    '''
+    if m1_connector is None:
+        out = m1.GetAtoms()[m1_tail].GetNeighbors()
+        if len(out) == 1:
+            m1_connector = out[0].GetIdx()
+        else:
+            raise(ValueError, 'Too many or too few atoms bound to p1_tail')
+    if m2_connector is None:
+        out = m2.GetAtoms()[m2_head].GetNeighbors()
+        if len(out) == 1:
+            m2_connector = out[0].GetIdx()
+        else:
+            raise(ValueError, 'Too many or too few atoms bound to p2_head')    
+    
+    combo_mol = Chem.rdmolops.CombineMols(m1,m2)
+    em = Chem.EditableMol(combo_mol)
+    em.AddBond(m1_connector, m2_connector + m1.GetNumAtoms(),Chem.BondType.SINGLE)
+    em.RemoveAtom(m1_tail)
+    em.RemoveAtom(m2_head + m1.GetNumAtoms() - 1)
+    new_mol = em.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol)
+        return new_mol
+    except:
+        return None

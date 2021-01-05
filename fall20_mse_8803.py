@@ -66,20 +66,23 @@ def frp_depolymerize(mol,strict=True):
             try:
                 new_mol = em.GetMol()
                 Chem.SanitizeMol(new_mol)
-                em = Chem.EditableMol(new_mol)
-                #lp.delStarMol()
-                inds = new_mol.GetSubstructMatch(Chem.MolFromSmiles('C=C'))
-                em.RemoveBond(inds[0],inds[1])
-                m=em.GetMol()
-                frags = Chem.GetMolFrags(m, asMols=True)
-                Chem.AllChem.EmbedMolecule(frags[0])
-                Chem.AllChem.EmbedMolecule(frags[1])
-                volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
-                if np.min(volumes) < 20.5: #35.7 is the volume of C(F)(F). 20.5 is the volume of C(H)(H)
+                if strict: #if strict then presence of [CH2] has already been enforced
                     return [new_mol]
                 else:
-                    #print(np.min(volumes))
-                    return None
+                    em = Chem.EditableMol(new_mol)
+                    #lp.delStarMol()
+                    inds = new_mol.GetSubstructMatch(Chem.MolFromSmiles('C=C'))
+                    em.RemoveBond(inds[0],inds[1])
+                    m=em.GetMol()
+                    frags = Chem.GetMolFrags(m, asMols=True)
+                    Chem.AllChem.EmbedMolecule(frags[0])
+                    Chem.AllChem.EmbedMolecule(frags[1])
+                    volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
+                    if np.min(volumes) < 20.5: #35.7 is the volume of C(F)(F). 20.5 is the volume of C(H)(H)
+                        return [new_mol]
+                    else:
+                        #print(np.min(volumes))
+                        return None
             except:
                 return None
         elif mc_match2:
@@ -97,15 +100,17 @@ def frp_depolymerize(mol,strict=True):
                 inds = new_mol.GetSubstructMatch(Chem.MolFromSmiles('C#C'))
                 em.RemoveBond(inds[0],inds[1])
                 m=em.GetMol()
-                frags = Chem.GetMolFrags(m, asMols=True)
-                Chem.AllChem.EmbedMolecule(frags[0])
-                Chem.AllChem.EmbedMolecule(frags[1])
-                volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
-                if np.min(volumes) < 20.43: #35.7 is the volume of C(F)(F). 20.43 is the volume of C(H)(H)
+                if strict: #CH2 already checked for if strict turned on
                     return [new_mol]
-                else:
-                    #print(np.min(volumes))
-                    return None
+                else: 
+                    frags = Chem.GetMolFrags(m, asMols=True)
+                    Chem.AllChem.EmbedMolecule(frags[0])
+                    Chem.AllChem.EmbedMolecule(frags[1])
+                    volumes = np.array([Chem.AllChem.ComputeMolVolume(frags[0]),Chem.AllChem.ComputeMolVolume(frags[1])])
+                    if np.min(volumes) < 20.5: #35.7 is the volume of C(F)(F). 20.43 is the volume of C(H)(H)
+                        return [new_mol]
+                    else:
+                        return None
             except:
                 return None
         else:
@@ -996,7 +1001,7 @@ class ReactionStep:
         self.rxn_fn = str(rxn_fn_hash).split(' ')[1]
         self.catalog = None
         self.synthetic_scores = None
-        self.poly_syn_score = None
+        self.poly_syn_score = None #synthetic complexity of polymer. TODO: change this name
         try:
             self.fwd_rxn_label = fwd_rxn_labels[self.rxn_fn]
         except:
