@@ -507,6 +507,14 @@ def mol_with_atom_index(mol):
         atom.SetAtomMapNum(atom.GetIdx())
     return mol
 
+def mol_without_atom_index(mol):
+    '''
+    Label each atom in mol with index
+    '''
+    for atom in mol.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return mol
+
 
 def mol_with_partial_charge(mol,supress_output=False):
     '''
@@ -675,6 +683,8 @@ class LinearPol(Chem.rdchem.Mol):
         #return mol
     
     def AlphaMol(self):
+        if self.main_chain_atoms is None:
+            self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms]))
         mol = self.SubChainMol(self.mol,self.alpha_atoms)
         return LinearPol(mol,self.SMILES).PeriodicMol()
@@ -712,7 +722,7 @@ class LinearPol(Chem.rdchem.Mol):
         except:
             return None
 
-    def multiplySmiles(self,n):
+    def multiply(self,n):
         '''
         Return a LinearPol which is n times repeated from itself
         '''   
@@ -1018,3 +1028,20 @@ def bind_frags(m1,m1_tail,m2,m2_head,m1_connector=None,m2_connector=None):
         return new_mol
     except:
         return None
+
+def pd_load_pg_json(path_to_living_json):
+    lines = ['{']
+    with open(path_to_living_json, 'r') as f:
+        for ind,line in enumerate(f):
+            lines.append(line.strip())
+    lines.append('}')
+    spl_s = path_to_living_json.split('.csv')
+    new_file_name = spl_s[0] + '_intermed' + spl_s[1]
+    write_list_to_file(lines,new_file_name)
+    return pd.read_json(new_file_name).transpose().fillna(0)
+
+def pg_can(sm):
+    '''
+    Return the polymer genome canonicalized version of the SMILES string, sm
+    '''
+    return sm.replace('*','[*]')

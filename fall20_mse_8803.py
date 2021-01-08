@@ -45,10 +45,13 @@ def frp_depolymerize(mol,strict=True):
     side_chain_patt2 = Chem.MolFromSmiles('C#C')
     side_chain_patt3 = Chem.MolFromSmarts('[OH]')
     sc_mol = ru.LinearPol(mol).SideChainMol()
+    if sc_mol is not None:
+        sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
+    else:
+        sc_matches = False #if there is no side-chain mol then there can't be any matches
+    
     mc_match1 = mol.GetSubstructMatch(main_chain_patt1)
     mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
-    sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
-    
     if not sc_matches:
         lp = ru.LinearPol(mol)
         #n_connectors = len(set(lp.connector_inds))
@@ -124,27 +127,37 @@ def ox_depolymerize(mol):
     '''
     if type(mol) == str:
         mol = Chem.MolFromSmiles(mol)
-    lp = ru.LinearPol(mol)
-    new_mol = lp.delStarMol() #make would-be monomer
-    if is_symmetric2(new_mol,group=lp.delStarMolInds): #check symmetry 
-        bonds = lp.mol.GetAtoms()[max(lp.connector_inds)].GetBonds() 
-        bond_types = np.array([b.GetBondTypeAsDouble() for b in bonds]) #bond types of connector atom
-        if any(bond_types > 1): #check if there is a pi-system
-            return new_mol
-        else:
-            return None
-    else:
-        return None    
 
-    def isHydrocarbon(smiles):
-        if type(smiles) != str:
-            smiles = Chem.MolToSmiles(smiles)
-        smiles=smiles.lower()
-        filtered = [c.lower() for c in smiles if c.isalpha()]
-        if smiles.count('c') == len(filtered):
-            return True
-        else:
-            return False
+    if mol.HasSubstructMatch( Chem.MolFromSmarts('[#0][R]') ): #Most mol will fail. Necessary but not sufficient condition. Added for efficiency purposes
+        lp = ru.LinearPol(mol)
+        pi_bonds = set([b.GetIdx() for b in mol.GetBonds() if b.GetBondTypeAsDouble() > 1])
+        c1_bonds = [b.GetIdx() for b in lp.mol.GetAtoms()[max(lp.connector_inds)].GetBonds()] #bonds of connector 1
+        c2_bonds = [b.GetIdx() for b in lp.mol.GetAtoms()[min(lp.connector_inds)].GetBonds()] #bonds of connector 2    
+        if not any([b in pi_bonds for b in c1_bonds]) or not any([b in pi_bonds for b in c2_bonds]): #if connectors don't have pi bonds return None
+            return None
+        ri = mol.GetRingInfo()
+        try:
+            c1_ring = [ring for ring in ri.BondRings() if len(set(ring).intersection(c1_bonds)) > 0][0]
+            c2_ring = [ring for ring in ri.BondRings() if len(set(ring).intersection(c2_bonds)) > 0][0]
+        except: #if connectors are not in rings then return None
+            return None
+        if set(c1_ring).union(c2_ring) != pi_bonds: #if any pi-bonds exist outside of connector rings return None
+            return None
+        new_mol = lp.delStarMol() #make would-be monomer
+        if is_symmetric2(new_mol,group=lp.delStarMolInds):
+            return [ru.mol_without_atom_index(new_mol)]
+    else:
+        return None
+
+def isHydrocarbon(smiles):
+    if type(smiles) != str:
+        smiles = Chem.MolToSmiles(smiles)
+    smiles=smiles.lower()
+    filtered = [c.lower() for c in smiles if c.isalpha()]
+    if smiles.count('c') == len(filtered):
+        return True
+    else:
+        return False
 
 def getCharges(mol,atom_inds):
     atoms = mol.GetAtoms()
@@ -298,7 +311,7 @@ def ro_depolymerize2(lp):
     '''
     Return (polymer,monomer) if ring-opening polymerization is possible
     '''
-    if type(lp) == str: #only for convenience. Pass in LinearPol object when possible
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     
     patt1=Chem.MolFromSmiles('CNC(=O)')
@@ -310,13 +323,17 @@ def ro_depolymerize2(lp):
     try:
         print('here1')
         pm = lp.PeriodicMol()
+        print('herea')
         am = lp.AlphaMol()
+        print('hereb')
         mcm = lp.MainChainMol()
+        print('herec')
         alpha_match_len = (len(am.GetSubstructMatches(patt1)),len(am.GetSubstructMatches(patt2)),
                           len(mcm.GetSubstructMatches(patt3)),
                           len(mcm.GetSubstructMatches(patt4)),
                           len(mcm.GetSubstructMatches(patt5)),
                           len(am.GetSubstructMatches(patt5))) #exo-imino
+        print('hered')
         if alpha_match_len[0] == 1 or alpha_match_len[1] == 1 or alpha_match_len[4] == 1 or alpha_match_len[5] == 1:
             print('here2')
             alpha_match_len = list(alpha_match_len)
@@ -909,15 +926,56 @@ def cooh_nh2_oh_al_edit(pm,match_pair):
     else:
         return []
 
+def oh_oh_xo_edit_6m(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ 2 -OH group on each side and another monomer w/ X=O. 
+    6m denotes that the spiro-rings are 6-membered 
+    Source: 10.1039/C4PY00178H (DOI), p. 3216
+    '''   
+    a_ilw, a_ilto, _, _, _, a_ilbo, _, a_irbo, a_irw, a_irto, _ = match_pair
+    em = Chem.EditableMol(pm)
+    em.RemoveBond(a_ilw,a_ilto)
+    em.RemoveBond(a_ilw,a_ilbo)
+    em.RemoveBond(a_irw,a_irto)
+    em.RemoveBond(a_irw,a_irbo)
+    o1 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    o2 = em.AddAtom(Chem.AtomFromSmiles('O'))
+    em.AddBond(a_ilw,o1,Chem.BondType.DOUBLE)
+    em.AddBond(a_irw,o2,Chem.BondType.DOUBLE)
+    new_mol = em.GetMol()
+    Chem.SanitizeMol(new_mol)
+    frag_ids = Chem.GetMolFrags(new_mol)
+    if len(frag_ids) == 2:
+        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+        if frag_mols[0].HasSubstructMatch(Chem.MolFromSmarts('[OH]')):
+            oh_ind = 0
+            xo_ind = 1
+        else:
+            oh_ind = 1
+            xo_ind = 0
+        oh_mol = frag_mols[oh_ind]
+        xo_mol = frag_mols[xo_ind]
+        return [(new_mol, oh_mol, xo_mol)]
+    else:
+        return []       
+
+def oh_oh_f_f_edit(pm,match_pair):
+    '''
+    Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ 2 -OH group on each side and another monomer w/ 2 -F on each side. 
+    Source: 10.1039/C9TA04844H, p. 22437
+    '''   
+    return None
+
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
-    '*OC(=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
-    '*C(=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)],
-    '*[NH]C(=O)*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('C(=O)[OH]'),cooh_nh2_edit)],
-    '*[NH]C(=O)[NH]*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nh2_nco_edit)],
-    '[NH]C(=O)N': [(Chem.MolFromSmarts('[NH]'),Chem.MolFromSmarts('N=C=O'),nh_nco_edit)],
+    '*O[#6](=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
+    '*[#6](=O)O*': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('[OH]'),cooh_oh_edit)],
+    '*[NH][#6](=O)*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('C(=O)[OH]'),cooh_nh2_edit)],
+    '*[NH][#6](=O)[NH]*': [(Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('N=C=O'),nh2_nco_edit)],
+    '[NH][#6](=O)N': [(Chem.MolFromSmarts('[NH]'),Chem.MolFromSmarts('N=C=O'),nh_nco_edit)],
     'O=Cc1ccc(O)cc1': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmiles('O[Na]'),cl_NaO_edit)],
     'C1=NccO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_ar_edit)],
-    'C1=NCCO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_al_edit)]
+    'C1=NCCO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_al_edit)],
+    '*1-[#8]-[#6]-[#6]2(-[#6]-[#8]-1)-[#6]-[#8]-*-[#8]-[#6]-2': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('*=O'),oh_oh_xo_edit_6m)]
 }
 
 
@@ -944,7 +1002,10 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
             if edit_function != nh_nco_edit: #but there are exceptions
                 return None        
     matches=pm.GetSubstructMatches(polymer_linkage)
-    match_pairs = list(itertools.combinations(matches, 2))
+    if 'oh_oh_xo_edit' in str(edit_function): 
+        match_pairs = list(matches)
+    else:
+        match_pairs = list(itertools.combinations(matches, 2))
     new_mols = []
     for match_pair in match_pairs:
         new_mols_info = edit_function(pm,match_pair)
@@ -953,8 +1014,12 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
                 new_mol = new_mol_info[0]
                 g1_mol = new_mol_info[1]
                 g2_mol = new_mol_info[2]
-                if all([is_symmetric2(g1_mol,x) for x in g1] + [is_symmetric2(g2_mol,x) for x in g2]): #symmetry function includes a check to make sure there are only 2 matches
-                    new_mols.append(new_mol)
+                if 'oh_oh_xo_edit' in str(edit_function): #g1_mol is symmetric w.r.t [OH] by construction
+                    if all([is_symmetric2(g2_mol,x) for x in g2]):
+                        new_mols.append(new_mol)
+                else:
+                    if all([is_symmetric2(g1_mol,x) for x in g1] + [is_symmetric2(g2_mol,x) for x in g2]): #symmetry function includes a check to make sure there are only 2 matches
+                        new_mols.append(new_mol)
     if new_mols == []:
         return None
     else:
@@ -963,7 +1028,8 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
 
 fwd_rxn_labels = {
     'frp_depolymerize': 'radical/ionic polymerization',
-    'sg_depolymerize': 'step growth polymerization'
+    'sg_depolymerize': 'step growth polymerization',
+    'ox_depolymerize': 'oxidative polymerization'
 }
 
 def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title=''):
@@ -1012,12 +1078,11 @@ class ReactionStep:
             self.catalog = np.array([x in mol_set for x in self.reactant_frag_smiles])
         return self.catalog
     
-    def DrawStep(self):
+    def DrawStep(self,size=(6, 4)):
         title = 'Reaction'
         if self.poly_syn_score is not None:
             title += '\nSynthetic Complexity: {:.2f}'.format( self.poly_syn_score )
-        drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=(6, 4),title=title)
-
+        drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=size,title=title)
     
     def DrawCatalog(self,mol_set=None):
         if self.catalog is None:
@@ -1074,6 +1139,63 @@ class ReactionStep:
         return (self.product_smiles, ' '.join(sorted(self.reactant_frag_smiles)), self.rxn_fn)
 
 
+def search_polymer(lp,polymer_set):
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol:
+        lp = ru.LinearPol(lp)
+    if type(lp) == ru.LinearPol:
+        try:
+            pm1 = lp.PeriodicMol()
+            if pm1 is not None:
+                return Chem.MolToSmiles(pm1) in polymer_set
+            pm2 = lp.multiply(2).PeriodicMol()
+            if pm2 is not None:
+                return Chem.MolToSmiles(pm2) in polymer_set
+            pm3 = lp.multiply(3).PeriodicMol()
+            return Chem.MolToSmiles(pm3) in polymer_set
+        except:
+            raise(ValueError)
+    else:
+        raise(TypeError, 'Invalid type for input lp')
+    
+
 class ReactionPath:
     def __init__(self, reaction_step_arr):
         self.reaction_step_arr = reaction_step_arr
+
+def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True):
+    '''
+    Input a list of smiles and return the synthesis pathways
+    '''
+    ReactionStepList = []
+    for x in smiles_ls:
+        mol = Chem.MolFromSmiles(x)
+        #do frp
+        if radion:
+            monomer_ls = frp_depolymerize(mol)
+            if monomer_ls is not None:
+                for monomer in monomer_ls:
+                    rs = ReactionStep(monomer,mol,frp_depolymerize)
+                    ReactionStepList.append(rs)
+        #do sg
+        if sg:
+            linkages = sg_rxns.keys()
+            for linkage_smiles in linkages:
+                if '#' not in linkage_smiles: #if string does not have '#' in it then it's a SMILES 
+                    linkage_mol = Chem.MolFromSmiles(linkage_smiles)
+                else:
+                    linkage_mol = Chem.MolFromSmarts(linkage_smiles)
+                for rxn_info in sg_rxns[linkage_smiles]:
+                    monomers = sg_depolymerize(x,linkage_mol,rxn_info)
+                    if monomers != None:
+                        for monomer in monomers:
+                            rs = ReactionStep(monomer,mol,sg_depolymerize)
+                            ReactionStepList.append(rs)
+        #do oxidative depolymerization
+        if ox:
+            monomer_ls = ox_depolymerize(mol)
+            if monomer_ls is not None:
+                for monomer in monomer_ls:
+                    rs = ReactionStep(monomer,mol,ox_depolymerize)
+                    ReactionStepList.append(rs)
+    keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
+    return [ReactionStepList[i] for i in keep_inds] 
