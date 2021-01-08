@@ -679,7 +679,7 @@ class LinearPol(Chem.rdchem.Mol):
         if self.main_chain_atoms is None:
             self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         mol = self.SubChainMol(self.mol,self.main_chain_atoms)
-        return LinearPol(mol,self.SMILES).PeriodicMol()
+        return LinearPol(mol,self.SMILES)
         #return mol
     
     def AlphaMol(self):
@@ -687,7 +687,7 @@ class LinearPol(Chem.rdchem.Mol):
             self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms]))
         mol = self.SubChainMol(self.mol,self.alpha_atoms)
-        return LinearPol(mol,self.SMILES).PeriodicMol()
+        return LinearPol(mol,self.SMILES)
 
     def SideChainMol(self):
         if self.main_chain_atoms is None:

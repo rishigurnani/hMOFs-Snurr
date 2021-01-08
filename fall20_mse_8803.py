@@ -149,6 +149,8 @@ def ox_depolymerize(mol):
     else:
         return None
 
+
+
 def isHydrocarbon(smiles):
     if type(smiles) != str:
         smiles = Chem.MolToSmiles(smiles)
@@ -321,21 +323,21 @@ def ro_depolymerize2(lp):
     patt5=Chem.MolFromSmiles('COC=N')
     patt_oh=Chem.MolFromSmarts('[OX2H]')
     try:
-        print('here1')
+        #print('here1')
         pm = lp.PeriodicMol()
-        print('herea')
-        am = lp.AlphaMol()
-        print('hereb')
-        mcm = lp.MainChainMol()
-        print('herec')
+        #print('herea')
+        am = lp.AlphaMol().PeriodicMol()
+        #print('hereb')
+        mcm = lp.MainChainMol().PeriodicMol()
+        #print('herec')
         alpha_match_len = (len(am.GetSubstructMatches(patt1)),len(am.GetSubstructMatches(patt2)),
                           len(mcm.GetSubstructMatches(patt3)),
                           len(mcm.GetSubstructMatches(patt4)),
                           len(mcm.GetSubstructMatches(patt5)),
                           len(am.GetSubstructMatches(patt5))) #exo-imino
-        print('hered')
+        #print('hered')
         if alpha_match_len[0] == 1 or alpha_match_len[1] == 1 or alpha_match_len[4] == 1 or alpha_match_len[5] == 1:
-            print('here2')
+            #print('here2')
             alpha_match_len = list(alpha_match_len)
             alpha_match_len[2] = 0 #if we have an ester third group should be removed
             alpha_match_len[3] = 0
@@ -344,51 +346,86 @@ def ro_depolymerize2(lp):
             alpha_match_len[5] == 0 #endo-inimo overshadows exo-imino
         argmax = np.argmax(alpha_match_len)
         if sorted(alpha_match_len) == [0, 0, 0, 0, 0, 1]: #make sure groups exist on alpha_chain
-            print('here3')
+            #print('here3')
             lactone = len(pm.GetSubstructMatches(patt2))
             cyc_ether = len(pm.GetSubstructMatches(patt3))
             endo_imino_cyc_ether = len(pm.GetSubstructMatches(patt5))
             if pm.HasSubstructMatch(patt_oh) == True: 
-                print('here4')
+                #print('here4')
                 lactone = 0 #OH for lactone is no good
                 cyc_ether = 0 #OH for cyclic ether is no good
                 endo_imino_cyc_ether = 0 #OH for endo_imino_cyc_ether is no good
             tot_match_len = (len(pm.GetSubstructMatches(patt1)),lactone,cyc_ether,
                             len(pm.GetSubstructMatches(patt4)),endo_imino_cyc_ether,endo_imino_cyc_ether)
             if tot_match_len[argmax] == alpha_match_len[argmax]: #make sure no groups are on side chains
-                print('here5')
-                return (lp.mol,pm)
+                #print('here5')
+                return [pm]
             else:
                 return None
         else:
             return None
     except:
         return None   
-            
-def ro_depolymerize(lp):
+
+
+ro_linkages = {
+    'lactam':[Chem.MolFromSmarts('[CR][NR][CR](=O)'), []], 
+    'lactone':[Chem.MolFromSmarts('[CR][OR][CR](=O)'), ['cyclic_ether']],
+    'cyclic_ether':[Chem.MolFromSmarts('[CR][OR][CR]'), []]
+    }
+
+def ro_depolymerize(lp, ro_linkage_key):
     '''
     Return (polymer,monomer) if ring-opening polymerization is possible
+    Lactone test SMILES: [*]CCCC(=O)O[*]
     '''
-    if type(lp) == str: #only for convenience. Pass in LinearPol object when possible
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     
-    patt1=Chem.MolFromSmiles('CNC(=O)')
-    patt2=Chem.MolFromSmiles('COC(=O)')
-    
-    patt3=Chem.MolFromSmarts('[OX2H]')
     try:
-        pm = lp.PeriodicMol()
-        am = lp.AlphaMol()
-        alpha_match_len = (len(am.GetSubstructMatches(patt1)),len(am.GetSubstructMatches(patt2)))
-        if sorted(alpha_match_len) == [0, 1]: #make sure groups exist on alpha_chain
-            lactone = len(pm.GetSubstructMatches(patt2))
-            if pm.HasSubstructMatch(patt3) == True: 
-                lactone = 0 #OH for lactone is no good
-            tot_match_len = (len(pm.GetSubstructMatches(patt1)),lactone)
-            if tot_match_len == alpha_match_len: #make sure no groups are on side chains
-                return (lp.mol,pm)
-            else:
+        linkage = ro_linkages[ro_linkage_key][0]
+        sub_linkage_keys = ro_linkages[ro_linkage_key][1]
+        #patt1=Chem.MolFromSmiles('CNC(=O)')
+        #patt2=Chem.MolFromSmiles('COC(=O)')
+        #patt3=Chem.MolFromSmiles('COC')
+        #patt4=Chem.MolFromSmiles('CNC')
+        #patt5=Chem.MolFromSmiles('COC=N')
+        #patt_oh=Chem.MolFromSmarts('[OX2H]')
+        
+        #look for hydroxyl group
+        if ro_linkage_key in ['lactone', 'cyclic_ether']:
+            oh_mol = Chem.MolFromSmarts('[OH]')
+            if lp.mol.HasSubstructMatch(oh_mol):
                 return None
+        
+        pm = lp.PeriodicMol()
+        Chem.GetSSSR(pm)
+        pm_matches = pm.GetSubstructMatches(linkage)
+        if ro_linkage_key not in ['cyclic_ether']: #most rings will only polymerize w/ one linkage
+            if len(pm_matches) != 1: #the pm should have just one match of linkage
+                return None
+        else: #few rings can polymerize w/ more than one linkage
+            if len(pm_matches) == 0: 
+                return None
+        
+        #check selectivity
+        other_linkage_keys = set([k for k in ro_linkages.keys() if k != ro_linkage_key])
+        nsm = 0 #non-selective matches
+        for k in other_linkage_keys.difference(sub_linkage_keys):
+            if pm.HasSubstructMatch( ro_linkages[k][0] ):
+                nsm += 1
+        if nsm != 0:
+            return None
+
+        reduced_pm = None
+        if ro_linkage_key in ['lactam','lactone']:
+            reduced_pm = lp.AlphaMol().PeriodicMol()
+        else:
+            reduced_pm = lp.MainChainMol().PeriodicMol()
+        Chem.GetSSSR(reduced_pm)
+        reduced_pm_matches = reduced_pm.GetSubstructMatches(linkage)
+        if len(reduced_pm_matches) == len(pm_matches): #the only matches should exist on the reduced_pm
+            return [pm]
         else:
             return None
     except:
