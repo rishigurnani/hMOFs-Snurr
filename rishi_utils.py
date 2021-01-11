@@ -582,7 +582,10 @@ def main_chain_len(ls):
     return [_main_chain_len(s) for s in ls]
 
 class LinearPol(Chem.rdchem.Mol):
-    def __init__(self, mol,SMILES=None): 
+    def __init__(self, mol,SMILES=None):
+        '''
+        SMILES = the smiles string of the parent polymer
+        ''' 
         if type(mol) == str:
             self.mol = Chem.MolFromSmiles(mol)
             self.SMILES = mol
@@ -597,7 +600,7 @@ class LinearPol(Chem.rdchem.Mol):
         #self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         self.main_chain_atoms, self.side_chain_atoms = None,None
         
-        #self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms])) #need to implement
+        self.alpha_atoms = None
         self.beta_atoms = None #need to implement
         
     
@@ -682,11 +685,26 @@ class LinearPol(Chem.rdchem.Mol):
         return LinearPol(mol,self.SMILES)
         #return mol
     
-    def AlphaMol(self):
+    def get_alpha_atoms(self):
         if self.main_chain_atoms is None:
             self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         self.alpha_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.main_chain_atoms]))
+    
+    def AlphaMol(self):
+        if self.alpha_atoms is None:
+            self.get_alpha_atoms()
         mol = self.SubChainMol(self.mol,self.alpha_atoms)
+        return LinearPol(mol,self.SMILES)
+    
+    def get_beta_atoms(self):
+        if self.alpha_atoms is None:
+            self.get_alpha_atoms()
+        self.beta_atoms = set(flatten_ll([list(x.GetNeighbors()) for x in self.alpha_atoms]))
+    
+    def BetaMol(self):
+        if self.beta_atoms is None:
+            self.get_beta_atoms()
+        mol = self.SubChainMol(self.mol,self.beta_atoms)
         return LinearPol(mol,self.SMILES)
 
     def SideChainMol(self):

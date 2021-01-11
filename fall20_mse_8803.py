@@ -369,28 +369,29 @@ def ro_depolymerize2(lp):
 
 
 ro_linkages = {
-    'lactam':[Chem.MolFromSmarts('[CR][NR][CR](=O)'), []], 
-    'lactone':[Chem.MolFromSmarts('[CR][OR][CR](=O)'), ['cyclic_ether']],
-    'cyclic_ether':[Chem.MolFromSmarts('[CR][OR][CR]'), []]
-    }
+    'lactam':Chem.MolFromSmarts('[CR][NR][CR](=O)'), 
+    'lactone':Chem.MolFromSmarts('[CR][OR][CR](=O)'),
+    'cyclic_ether':Chem.MolFromSmarts('[CR][OR][CR]'),
+    'imine':Chem.MolFromSmarts('[CR][NR][CR]'),
+    'ncie':Chem.MolFromSmarts('[NR][CR0](=O)'), #ncie = eNdo Cyclic Imino Ether
+    'cyclic_sulfide':Chem.MolFromSmarts('[CR][SR]')
+}
 
-def ro_depolymerize(lp, ro_linkage_key):
+def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
     '''
-    Return (polymer,monomer) if ring-opening polymerization is possible
-    Lactone test SMILES: [*]CCCC(=O)O[*]
+    Return (polymer,monomer) if ring-opening polymerization is possible. selectivity = True means a selectivity check will occur. selectivity appears to be violated in 10.1002/pola.10090, p.194, Scheme 2, 5 so default is to not check for selectivity at the moment.
+    lactam test SMILES: [*]C(NC(=O)C)CCC(=O)N[*]
+    lactone test SMILES: [*]CCCC(=O)O[*]
+    cyclic_ether test SMILES: [*]COCOCO[*]
+    imine test SMILES: [*]CCN([*])C
+    ncie test SMILES: [*]N(C=O)CC(=O)[*]
+    cyclic_sulfide test SMILES: [*]CCOCCSS[*]
     '''
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     
     try:
-        linkage = ro_linkages[ro_linkage_key][0]
-        sub_linkage_keys = ro_linkages[ro_linkage_key][1]
-        #patt1=Chem.MolFromSmiles('CNC(=O)')
-        #patt2=Chem.MolFromSmiles('COC(=O)')
-        #patt3=Chem.MolFromSmiles('COC')
-        #patt4=Chem.MolFromSmiles('CNC')
-        #patt5=Chem.MolFromSmiles('COC=N')
-        #patt_oh=Chem.MolFromSmarts('[OX2H]')
+        linkage = ro_linkages[ro_linkage_key]
         
         #look for hydroxyl group
         if ro_linkage_key in ['lactone', 'cyclic_ether']:
@@ -401,31 +402,80 @@ def ro_depolymerize(lp, ro_linkage_key):
         pm = lp.PeriodicMol()
         Chem.GetSSSR(pm)
         pm_matches = pm.GetSubstructMatches(linkage)
-        if ro_linkage_key not in ['cyclic_ether']: #most rings will only polymerize w/ one linkage
+        ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
+        pm_match_set = [set(match) for match in pm_matches]
+        match_ring = None
+        if ro_linkage_key not in ['cyclic_ether', 'cyclic_sulfide']: #most rings will only polymerize w/ one linkage
             if len(pm_matches) != 1: #the pm should have just one match of linkage
                 return None
-        else: #few rings can polymerize w/ more than one linkage
+            for ring in ar:            
+                if match_ring is not None:
+                    break
+                for match in pm_match_set:
+                    if len( match.intersection(ring) ) > 0:
+                        match_ring = ring
+                        break            
+        else: #few rings can polymerize w/ more than one linkage but all linkages must be in same ring.
             if len(pm_matches) == 0: 
                 return None
-        
-        #check selectivity
-        other_linkage_keys = set([k for k in ro_linkages.keys() if k != ro_linkage_key])
-        nsm = 0 #non-selective matches
-        for k in other_linkage_keys.difference(sub_linkage_keys):
-            if pm.HasSubstructMatch( ro_linkages[k][0] ):
-                nsm += 1
-        if nsm != 0:
+            n_ring_matches = 0
+            for ring in ar:            
+                for match in pm_match_set:
+                    if len( match.intersection(ring) ) > 0:
+                        n_ring_matches += 1
+                        match_ring = ring
+                        break
+                if n_ring_matches > 1:
+                    return None    
+        if len( match_ring ) > 9: #set a limit to how large the rings can be
             return None
+
+        #check selectivity
+        if selectivity:
+            pm_match_set = set(ru.flatten_ll(pm_matches))
+            other_linkage_keys = [k for k in ro_linkages.keys() if k != ro_linkage_key]
+            for k in other_linkage_keys:
+                k_matches = set(ru.flatten_ll(pm.GetSubstructMatches( ro_linkages[k] )))
+                if len(  k_matches.difference(pm_match_set) ) > 0: 
+                    return None
 
         reduced_pm = None
         if ro_linkage_key in ['lactam','lactone']:
             reduced_pm = lp.AlphaMol().PeriodicMol()
+        elif ro_linkage_key in ['ncie']:
+            reduced_pm = lp.BetaMol().PeriodicMol()
         else:
             reduced_pm = lp.MainChainMol().PeriodicMol()
         Chem.GetSSSR(reduced_pm)
         reduced_pm_matches = reduced_pm.GetSubstructMatches(linkage)
+
+        #1,2- and 2,3-disubstituted aziridines do not polymerize; 1-and 2-substituted aziridines undergo polymerization
+        #Source: Odian, Principles of Polymerization, 4E, p.587
+        if ro_linkage_key == 'imine':
+            aziridine = Chem.MolFromSmarts('[#6]1-[#7]-[#6]-1')
+            if reduced_pm.HasSubstructMatch(aziridine):
+                if pm.HasSubstructMatch( Chem.MolFromSmarts('[#6H2]1-[#7](*)-[#6H2]-1') ) or pm.HasSubstructMatch( Chem.MolFromSmarts('[#6]1(*)-[#7H]-[#6H2]-1') ): #1 and 2 substitution works but nothing else
+                    pass
+                else:
+                    return None
+
         if len(reduced_pm_matches) == len(pm_matches): #the only matches should exist on the reduced_pm
-            return [pm]
+            if ro_linkage_key == 'ncie': #ncie requires some edits to the pm. Source: 10.1002/pola.10090, p.194
+                rxn = Chem.AllChem.ReactionFromSmarts('[CR:1][NR:2]([CR0:4]=[O:5])[CR:3]>>[CR:1][NR:2]=[CR:4][OR:5][CR:3]')
+                ps=rxn.RunReactants((pm,))
+                valid_ps = []
+                for p in ps:
+                    try:
+                        Chem.SanitizeMol(p[0])
+                        valid_ps.append(p[0])
+                    except:
+                        pass
+                if len(valid_ps) == 0:
+                    return None
+                else:
+                    return valid_ps
+            else:
+                return [pm]
         else:
             return None
     except:
@@ -1066,7 +1116,8 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
 fwd_rxn_labels = {
     'frp_depolymerize': 'radical/ionic polymerization',
     'sg_depolymerize': 'step growth polymerization',
-    'ox_depolymerize': 'oxidative polymerization'
+    'ox_depolymerize': 'oxidative polymerization',
+    'ro_depolymerize': 'ring-opening polymerization'
 }
 
 def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title=''):
@@ -1199,21 +1250,21 @@ class ReactionPath:
     def __init__(self, reaction_step_arr):
         self.reaction_step_arr = reaction_step_arr
 
-def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True):
+def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
     ReactionStepList = []
     for x in smiles_ls:
         mol = Chem.MolFromSmiles(x)
-        #do frp
+        #do free-radical depolymerization
         if radion:
             monomer_ls = frp_depolymerize(mol)
             if monomer_ls is not None:
                 for monomer in monomer_ls:
                     rs = ReactionStep(monomer,mol,frp_depolymerize)
                     ReactionStepList.append(rs)
-        #do sg
+        #do step-growth depolymerization
         if sg:
             linkages = sg_rxns.keys()
             for linkage_smiles in linkages:
@@ -1234,5 +1285,14 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True):
                 for monomer in monomer_ls:
                     rs = ReactionStep(monomer,mol,ox_depolymerize)
                     ReactionStepList.append(rs)
+        #do ring-opening depolymerization
+        if ro:
+            linkages = ro_linkages.keys()
+            for l in linkages:
+                monomers = ro_depolymerize(mol,l)
+                if monomers != None:
+                    for m in monomers:
+                        rs = ReactionStep(m,mol,ro_depolymerize)
+                        ReactionStepList.append(rs)
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
     return [ReactionStepList[i] for i in keep_inds] 
