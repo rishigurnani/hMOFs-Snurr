@@ -33,6 +33,8 @@ import auxFunctions as aF
 from rdkit.Chem import rdmolfiles
 from rdkit.Chem.Draw import SimilarityMaps
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+mpl.rcParams['figure.dpi']= 600
 
 def pd_load(path):
     try:
@@ -965,17 +967,21 @@ def n_spiro_vol(s):
     except:
         return 0   
 
-def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
-    mol_ims = [Chem.Draw.MolToImage(mol,size=(800,800)) for mol in mol_ls]
+def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(3, 3),title=''):
+    mol_ims = [Chem.Draw.MolToImage(mol,size=(300,300)) for mol in mol_ls]
     n_mols = len(mol_ls)
     n_cols = molsPerRow
     n_rows = int(np.ceil( n_mols / 2 ))
+
     if molsPerRow == 1: 
-        ImgSize=(3, 3)
+        ImgSize=(1.5, 1.5)
+    FONT_FACTOR = ImgSize[0] / 6
+    
     if labels is None:
         labels = ['' for x in mol_ls]
     fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols)
     fig.set_size_inches(ImgSize[0], ImgSize[1], forward=True)
+    #fig.set_size_inches(20, 20, forward=True)
     for i in range(n_rows):
         for j in range(n_cols):
             try:
@@ -988,7 +994,7 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
             n = n_cols*i + j
             try:
                 ax.imshow( mol_ims[n] )
-                ax.set_xlabel( labels[n] )
+                ax.set_xlabel( labels[n], fontsize=14*FONT_FACTOR )
             except: 
                 pass
             #clean each axis
@@ -997,12 +1003,14 @@ def MolsToGridImage(mol_ls,labels=None,molsPerRow=2,ImgSize=(5, 5),title=''):
             ax.get_xaxis().set_ticks([])
             ax.get_yaxis().set_ticks([])
     
-    fig.suptitle(title, fontsize=16)
+    
+    
+    fig.suptitle(title, fontsize=16*FONT_FACTOR)
     
     downshift = title.count('\n')*.15
     #plt.subplots_adjust( top=(1-downshift) )
     plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0, rect=[0, 0, 1, 1 - downshift])
-    plt.show()
+    fig.show()
     #return fig
 
 import io

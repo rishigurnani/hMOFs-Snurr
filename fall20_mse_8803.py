@@ -1120,9 +1120,9 @@ fwd_rxn_labels = {
     'ro_depolymerize': 'ring-opening polymerization'
 }
 
-def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title=''):
+def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title='', legend_adds=['']):
     '''
-    Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol. extra_args are for compatability with step_growth.
+    Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol. extra_args are for compatability with step_growth. Legend adds are list of strings that will be added below each legend.
     '''
     if type(p_mol) == str:
         p_mol = Chem.MolFromSmiles(p_mol)
@@ -1166,10 +1166,9 @@ class ReactionStep:
             self.catalog = np.array([x in mol_set for x in self.reactant_frag_smiles])
         return self.catalog
     
-    def DrawStep(self,size=(6, 4)):
+    def DrawStep(self,size=(6, 4),title_add=''):
         title = 'Reaction'
-        if self.poly_syn_score is not None:
-            title += '\nSynthetic Complexity: {:.2f}'.format( self.poly_syn_score )
+        title += title_add
         drawRxn(self.product_mol,self.reactant_mol,self.rxn_fn,imgSize=size,title=title)
     
     def DrawCatalog(self,mol_set=None):
@@ -1249,7 +1248,71 @@ def search_polymer(lp,polymer_set):
 class ReactionPath:
     def __init__(self, reaction_step_arr):
         self.reaction_step_arr = reaction_step_arr
+        self.n_steps = self.reaction_step_arr.size
+        self.lp = ru.LinearPol(reaction_step_arr[-1].product_mol) #is a polymer
+        self.lp_smiles = reaction_step_arr[-1].product_smiles
+        self.lp_syn_score = None
+        self.can_smiles = None
+        self.lp_exists = None
+        self.doi = None
+        #below is a patch job that will need to changed when multi-step reactions occur
+        self.catalog = None
+        self.synthetic_scores = None
+        self.syn_class = None
+    
+    def SearchPolymer(self,pol_dict):
+        for n in range(4):
+            if self.lp_exists:
+                break
+            pm = self.lp.multiply(n).PeriodicMol()
+            if pm is not None:
+                try:
+                    self.can_smiles = pol_dict[ Chem.MolToSmiles(pm) ]
+                    self.lp_exists = True
+                except:
+                    self.lp_exists = False
+                    pass
+    
+    def DrawStep(self,size=(6, 4)):
+        if self.n_steps == 1:
+            return self.reaction_step_arr[0].DrawStep(size=size,title_add='\nSynthetic Complexity: {:.2f}'.format( self.lp_syn_score ))
 
+    def DrawCatalog(self):
+        if self.n_steps == 1:
+            return self.reaction_step_arr[0].DrawCatalog()
+
+    def SearchReactants(self,mol_set):
+        if self.catalog is None:
+            for rs in self.reaction_step_arr:
+                rs.SearchReactants(mol_set)
+            if self.n_steps == 1:
+                self.catalog = self.reaction_step_arr[0].catalog
+    
+    def SyntheticScore(self):
+        if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
+            raise LookupError('Catalog is equal to None')
+        elif self.lp_syn_score is None:
+            for rs in self.reaction_step_arr:
+                rs.SyntheticScore()
+            if self.n_steps == 1:
+                self.synthetic_scores = self.reaction_step_arr[0].synthetic_scores            
+            self.lp_syn_score = float(np.product(self.synthetic_scores))
+
+    def SyntheticClass(self):
+        if self.syn_class is None and self.lp_exists is not None and self.catalog is not None:
+            if self.lp_exists:
+                self.syn_class = 1 
+            elif np.max(self.synthetic_scores) == 1:
+                self.syn_class = 2
+            elif np.min(self.synthetic_scores) == 1:
+                self.syn_class = 3
+            else:
+                self.syn_class = 4
+        return self.syn_class
+    # def SearchDoi(self,doi_dict):
+    #     if self.doi is None and self.lp_exists:
+    #         self.doi = doi_dict[self.can_smiles]
+    
 def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True):
     '''
     Input a list of smiles and return the synthesis pathways
@@ -1295,4 +1358,4 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True):
                         rs = ReactionStep(m,mol,ro_depolymerize)
                         ReactionStepList.append(rs)
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
-    return [ReactionStepList[i] for i in keep_inds] 
+    return [ReactionPath( np.array( [ReactionStepList[i]] ) ) for i in keep_inds] 
