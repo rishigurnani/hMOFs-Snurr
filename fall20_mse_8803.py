@@ -1051,7 +1051,40 @@ def oh_oh_f_f_edit(pm,match_pair):
     Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ 2 -OH group on each side and another monomer w/ 2 -F on each side. 
     Source: 10.1039/C9TA04844H, p. 22437
     '''   
-    return None
+    return []
+
+def nh2_xox_edit(pm,match_pair):
+    '''
+    Source: Reynolds Class Notes, 8-25-20, p.2
+    '''
+    _,_,a_ioh,a_ic1,a_ic2,a_ico,_,a_in = match_pair[0]
+    _,_,b_ioh,b_ic1,b_ic2,b_ico,_,b_in = match_pair[1]
+    bond_type = pm.mol.GetBondBetweenAtoms(a_ic1,a_ic2).GetBondType()
+
+    em = Chem.EditableMol(pm.mol)
+    em.RemoveBond(a_ico,a_in)
+    em.RemoveBond(b_ico,b_in)
+
+    em.AddBond(a_ico,a_ioh,bond_type)
+    em.AddBond(b_ico,b_ioh,bond_type)
+
+    new_mol=em.GetMol()
+    Chem.SanitizeMol(new_mol)
+    
+    frag_ids = Chem.GetMolFrags(new_mol)
+    if len(frag_ids) == 2:
+        frag_mols = Chem.GetMolFrags(new_mol, asMols=True)
+        if frag_mols[0].HasSubstructMatch(Chem.MolFromSmarts('[NH2]')):
+            nh2_ind = 0
+            xox_ind = 1
+        else:
+            nh2_ind = 1
+            xox_ind = 0
+        nh2_mol = frag_mols[nh2_ind]
+        xox_mol = frag_mols[xox_ind]
+        return [(new_mol, nh2_mol, xox_mol)]
+    else:
+        return []        
 
 sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_function)]. Order matters. Do not change!
     '*O[#6](=O)O': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmarts('[OH]'),oh_cl_edit)],
@@ -1062,7 +1095,8 @@ sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_funct
     'O=Cc1ccc(O)cc1': [(Chem.MolFromSmiles('Cl'),Chem.MolFromSmiles('O[Na]'),cl_NaO_edit)],
     'C1=NccO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_ar_edit)],
     'C1=NCCO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_al_edit)],
-    '*1-[#8]-[#6]-[#6]2(-[#6]-[#8]-1)-[#6]-[#8]-*-[#8]-[#6]-2': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('*=O'),oh_oh_xo_edit_6m)]
+    '*1-[#8]-[#6]-[#6]2(-[#6]-[#8]-1)-[#6]-[#8]-*-[#8]-[#6]-2': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('*=O'),oh_oh_xo_edit_6m)],
+    '[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]': [(Chem.MolFromSmarts('[NH2,nH2]'),Chem.MolFromSmarts('*[O,o]*'),nh2_xox_edit)]
 }
 
 
@@ -1077,18 +1111,26 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
     lp = ru.LinearPol(mol)
     pm = lp.PeriodicMol()
     if pm is None: #periodization failed
+        print('None1')
         return None
     try: #sometimes g1 and g2 are given as lists. If so they will fail below.
         if pm.HasSubstructMatch(g1) or pm.HasSubstructMatch(g2): #chain should not have same functional groups we want to react
             if edit_function != nh_nco_edit: #but there are exceptions
+                print('None2')
                 return None
         g1 = [g1] #do this so symmetry check will have an iterable
         g2 = [g2] #do this so symmetry check will have an iterable
     except:
         if any([pm.HasSubstructMatch(x) for x in g1] + [pm.HasSubstructMatch(x) for x in g2]): #chain should not have same functional groups we want to react
             if edit_function != nh_nco_edit: #but there are exceptions
+                print('None3')
                 return None        
-    matches=pm.GetSubstructMatches(polymer_linkage)
+    try:
+        matches=pm.GetSubstructMatches(polymer_linkage)
+    except:
+        pm.GetSSSR()
+        matches=pm.GetSubstructMatches(polymer_linkage)
+
     if 'oh_oh_xo_edit' in str(edit_function): 
         match_pairs = list(matches)
     else:
@@ -1108,10 +1150,56 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
                     if all([is_symmetric2(g1_mol,x) for x in g1] + [is_symmetric2(g2_mol,x) for x in g2]): #symmetry function includes a check to make sure there are only 2 matches
                         new_mols.append(new_mol)
     if new_mols == []:
+        print('None4')
         return None
     else:
+        print('None5')
         return new_mols
     #return new_mols_info
+
+def ring_close_retro(lp):
+    '''
+    Reverse of Ring-closing which will occur after addition of heat
+    Source: Reynolds Class Notes, 8-25-20, p.2
+    '''
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        lp = ru.LinearPol(lp)
+    
+    start_match = Chem.MolFromSmarts('[cR,CR](=O)[nR,NR]')
+    end_match = Chem.MolFromSmarts('[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]')
+    pm = lp.PeriodicMol()
+    pm.GetSSSR()
+    #works for non-aromatic systems. TODO: work for aromatic systems
+    lps = []
+    if pm.mol.HasSubstructMatch(start_match) and not pm.mol.HasSubstructMatch(end_match):
+        matches = pm.mol.GetSubstructMatches(start_match)
+        for L in range(1, len(matches)+1):
+            for match_combo in itertools.combinations(matches,L):
+                em = Chem.EditableMol(pm.mol)
+                for i_c,_,i_n in match_combo: #indices of atoms
+                    em.RemoveBond(i_c,i_n)
+
+                    o=em.AddAtom(Chem.AtomFromSmiles('O'))
+                    em.AddBond(i_c,o,Chem.BondType.SINGLE)
+                
+                star1 = em.AddAtom(Chem.AtomFromSmiles('*'))
+                star2 = em.AddAtom(Chem.AtomFromSmiles('*'))
+                em.RemoveBond(pm.connector_inds[0],pm.connector_inds[1])
+                em.AddBond(pm.connector_inds[0],star1,Chem.BondType.SINGLE)
+                em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
+
+                new_mol=em.GetMol()
+                try:
+                    Chem.SanitizeMol(new_mol)
+                    lps.append( ru.LinearPol( ru.mol_without_atom_index(new_mol) ) )
+                except:
+                    pass
+        if lps != []:
+            return lps
+        else:
+            return None
+    else:
+       return None   
 
 fwd_rxn_labels = {
     'frp_depolymerize': 'radical/ionic polymerization',
