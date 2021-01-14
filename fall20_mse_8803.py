@@ -297,7 +297,7 @@ def admet_depolymerize(lp):
         mc = lp.MainChainMol()
         pm_match = pm.GetSubstructMatches(patt)
         if mc.HasSubstructMatch(patt) and len(pm_match)==1:
-            em = Chem.EditableMol(pm)
+            em = Chem.EditableMol(pm.mol)
             em.RemoveBond(pm_match[0][0],pm_match[0][1])
             C1_ind = em.AddAtom(Chem.AtomFromSmiles('C'))
             C2_ind = em.AddAtom(Chem.AtomFromSmiles('C'))
@@ -400,7 +400,7 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
                 return None
         
         pm = lp.PeriodicMol()
-        Chem.GetSSSR(pm)
+        pm.GetSSSR()
         pm_matches = pm.GetSubstructMatches(linkage)
         ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
         pm_match_set = [set(match) for match in pm_matches]
@@ -446,7 +446,7 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
             reduced_pm = lp.BetaMol().PeriodicMol()
         else:
             reduced_pm = lp.MainChainMol().PeriodicMol()
-        Chem.GetSSSR(reduced_pm)
+        reduced_pm.GetSSSR()
         reduced_pm_matches = reduced_pm.GetSubstructMatches(linkage)
 
         #1,2- and 2,3-disubstituted aziridines do not polymerize; 1-and 2-substituted aziridines undergo polymerization
@@ -462,7 +462,7 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
         if len(reduced_pm_matches) == len(pm_matches): #the only matches should exist on the reduced_pm
             if ro_linkage_key == 'ncie': #ncie requires some edits to the pm. Source: 10.1002/pola.10090, p.194
                 rxn = Chem.AllChem.ReactionFromSmarts('[CR:1][NR:2]([CR0:4]=[O:5])[CR:3]>>[CR:1][NR:2]=[CR:4][OR:5][CR:3]')
-                ps=rxn.RunReactants((pm,))
+                ps=rxn.RunReactants((pm.mol,))
                 valid_ps = []
                 for p in ps:
                     try:
@@ -475,7 +475,7 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
                 else:
                     return valid_ps
             else:
-                return [pm]
+                return [pm.mol]
         else:
             return None
     except:
@@ -598,7 +598,7 @@ def depolymerize(lp,patt):
         carbon_idx_2 = [x for x in b2 if pm.GetAtoms()[x].GetSymbol() == 'C'][0]
         n_atoms = len(pm.GetAtoms())
         
-        em = Chem.EditableMol(pm)
+        em = Chem.EditableMol(pm.mol)
 
         em.RemoveBond(b1[0],b1[1])
         em.RemoveBond(b2[0],b2[1])
@@ -657,7 +657,7 @@ def cooh_nh2_edit(pm,match_pair):
     '''
     Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH
     '''   
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     a_ir1,a_in,a_ic,a_io,a_ir2 = match_pair[0]
     b_ir1,b_in,b_ic,b_io,b_ir2 = match_pair[1]
     em.RemoveBond(a_ic,a_in)
@@ -688,7 +688,7 @@ def cooh_oh_edit(pm,match_pair):
     '''
     Take in an editable mol and match_pair and perform the bond breakage to create one monomer w/ COOH and another monomer w/ OH
     '''   
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     ai_r1,ai_c,ai_o_dbl,ai_o,ai_r2 = match_pair[0]
     bi_r1,bi_c,bi_o_dbl,bi_o,bi_r2 = match_pair[1]
     em.RemoveBond(ai_o,ai_r2)
@@ -716,7 +716,7 @@ def oh_cl_edit(pm,match_pair):
     oh_mols = []
     
     ### make the first monomer set ###
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     ai_r,ai_o_right,ai_c,i_dbl0,ai_o_left = match_pair[0]
     bi_r,bi_o_right,bi_c,bi_dbl0,bi_o_left = match_pair[1]
     em.RemoveBond(ai_o_left,ai_c)
@@ -729,7 +729,7 @@ def oh_cl_edit(pm,match_pair):
     Chem.SanitizeMol(new_mol1)
 
     ### make the second monomer set ###
-    em2 = Chem.EditableMol(pm)
+    em2 = Chem.EditableMol(pm.mol)
     em2.RemoveBond(ai_o_right,ai_r)
     em2.RemoveBond(bi_o_right,bi_r)
     i_cl1 = em2.AddAtom(Chem.AtomFromSmiles('Cl'))
@@ -765,7 +765,7 @@ def nh2_nco_edit(pm,match_pair):
     nco_mols = []
     
     ### make the first monomer set ###
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     a_ir1,a_inh,a_ic,a_io,a_in,a_ir = match_pair[0]
     b_ir1,b_inh,b_ic,b_io,b_in,b_ir = match_pair[1]
     em.RemoveBond(a_inh,a_ic)
@@ -784,7 +784,7 @@ def nh2_nco_edit(pm,match_pair):
         pass
 
     ### make the second monomer set ###
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(a_in,a_ic)
     em.RemoveBond(b_in,b_ic)
     #switch bond
@@ -831,7 +831,7 @@ def nh_nco_edit(pm,match_pair):
     b_inh,b_ic,_,b_in = match_pair[1]
 
     ### make the first monomer set ###
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(a_inh,a_ic)
     em.RemoveBond(b_inh,b_ic)
     #switch bond
@@ -848,7 +848,7 @@ def nh_nco_edit(pm,match_pair):
         pass
 
     ### make the second monomer set ###
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(a_in,a_ic)
     em.RemoveBond(b_in,b_ic)
     #switch bond
@@ -890,7 +890,7 @@ def cl_NaO_edit(pm,match_pair):
     '''   
     _,_,_,_,_,ai_c,ai_o,_,_ = match_pair[0]
     _,_,_,_,_,bi_c,bi_o,_,_ = match_pair[1]
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(ai_c,ai_o)
     em.RemoveBond(bi_c,bi_o)
     #add atoms
@@ -928,7 +928,7 @@ def cooh_nh2_oh_ar_edit(pm,match_pair):
     '''   
     a_ic,a_in,_,_,a_io = match_pair[0]
     b_ic,b_in,_,_,b_io = match_pair[1]
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(a_ic,a_io)
     em.RemoveBond(b_ic,b_io)
     em.RemoveBond(a_ic,a_in)
@@ -979,7 +979,7 @@ def cooh_nh2_oh_al_edit(pm,match_pair):
     '''   
     a_ic,a_in,_,_,a_io = match_pair[0]
     b_ic,b_in,_,_,b_io = match_pair[1]
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(a_ic,a_io)
     em.RemoveBond(b_ic,b_io)
     em.RemoveBond(a_ic,a_in)
@@ -1020,7 +1020,7 @@ def oh_oh_xo_edit_6m(pm,match_pair):
     Source: 10.1039/C4PY00178H (DOI), p. 3216
     '''   
     a_ilw, a_ilto, _, _, _, a_ilbo, _, a_irbo, a_irw, a_irto, _ = match_pair
-    em = Chem.EditableMol(pm)
+    em = Chem.EditableMol(pm.mol)
     em.RemoveBond(a_ilw,a_ilto)
     em.RemoveBond(a_ilw,a_ilbo)
     em.RemoveBond(a_irw,a_irto)

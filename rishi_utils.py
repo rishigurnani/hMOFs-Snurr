@@ -583,6 +583,30 @@ def main_chain_len(ls):
         ls = list(ls)    
     return [_main_chain_len(s) for s in ls]
 
+class PeriodicMol(Chem.rdchem.Mol):
+    def __init__(self, mol, star_inds, connector_inds):
+        self.mol = mol
+        self.connector_inds = []
+        for i in connector_inds:
+            srt=np.sort(star_inds + [i])[::-1] #sort in reverse order
+            new_ind = i - int(np.argwhere(srt==i))
+            self.connector_inds.append(new_ind)
+    def HasSubstructMatch(self,match_mol):
+        return self.mol.HasSubstructMatch(match_mol)
+    
+    def GetSubstructMatches(self,match_mol):
+        return self.mol.GetSubstructMatches(match_mol)
+
+    def GetSubstructMatch(self,match_mol):
+        return self.mol.GetSubstructMatch(match_mol)
+    
+    def GetSSSR(self):
+        Chem.GetSSSR(self.mol)
+
+    def GetRingInfo(self):
+        return self.mol.GetRingInfo()
+
+
 class LinearPol(Chem.rdchem.Mol):
     def __init__(self, mol,SMILES=None):
         '''
@@ -645,7 +669,7 @@ class LinearPol(Chem.rdchem.Mol):
             em.AddBond(self.connector_inds[0],self.connector_inds[1],Chem.BondType.SINGLE)
             em.RemoveAtom(self.star_inds[1])
             em.RemoveAtom(self.star_inds[0])
-            return em.GetMol()
+            return PeriodicMol( em.GetMol(),self.star_inds,self.connector_inds )
         except:
             print('!!!Periodization Failed!!!')
             if repeat_unit_on_fail == False:
@@ -653,7 +677,7 @@ class LinearPol(Chem.rdchem.Mol):
             else:
                 em.RemoveAtom(self.star_inds[1])
                 em.RemoveAtom(self.star_inds[0])                
-                return em.GetMol()
+                return PeriodicMol( em.GetMol(),self.star_inds,self.connector_inds )
 
     def SubChainMol(self,mol,keep_atoms):
         em = Chem.EditableMol(mol)
