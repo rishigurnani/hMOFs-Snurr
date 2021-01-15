@@ -1169,19 +1169,69 @@ def ring_close_retro(lp):
     end_match = Chem.MolFromSmarts('[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]')
     pm = lp.PeriodicMol()
     pm.GetSSSR()
-    #works for non-aromatic systems. TODO: work for aromatic systems
+    
     lps = []
-    if pm.mol.HasSubstructMatch(start_match) and not pm.mol.HasSubstructMatch(end_match):
+    lp_no_connect_inds = np.array([x for x in range(lp.mol.GetNumAtoms()) if x not in lp.star_inds])
+    def lp_to_pm_ind(lp_ind):
+        return int(np.argwhere(lp_no_connect_inds==lp_ind))
+
+    ri = lp.mol.GetRingInfo()
+    ar = ri.AtomRings()
+    ar_atom_idx = [a.GetIdx() for a in lp.mol.GetAromaticAtoms()]
+    atom_aromaticity = {a:0 for a in ar_atom_idx}
+
+    for ring in ar:
+        if ring[0] in ar_atom_idx:
+            for a in ring:
+                atom_aromaticity[a] += 1
+
+    if pm.mol.HasSubstructMatch(start_match) and not pm.mol.HasSubstructMatch(end_match): 
         matches = pm.mol.GetSubstructMatches(start_match)
         for L in range(1, len(matches)+1):
+        #for L in range(2,3):
             for match_combo in itertools.combinations(matches,L):
                 em = Chem.EditableMol(pm.mol)
-                for i_c,_,i_n in match_combo: #indices of atoms
-                    em.RemoveBond(i_c,i_n)
+                #print('Match combo:', match_combo)
+                for i_c,i_o,i_n in match_combo: #indices of atoms in pm
+                    
+                    #print('Matches: %s %s %s' %(i_c,i_o,i_n) )
+                    fix_aromaticity = False
+                    if pm.mol.GetBondBetweenAtoms(i_c,i_n).GetBondType() == Chem.BondType.AROMATIC:
+                        fix_aromaticity = True
+                        ring_atoms = None
+                        ring_size = 100
+                        for i in range(len(ar)):
+                            ring = ar[i]
+                            if lp_no_connect_inds[i_c] in ring and lp_no_connect_inds[i_n] in ring and len(ring) < ring_size: #assume correct ring is the smallest one
+                                ring_atoms = set(ring)
+                                ring_size = len(ring)
 
                     o=em.AddAtom(Chem.AtomFromSmiles('O'))
                     em.AddBond(i_c,o,Chem.BondType.SINGLE)
+                    #print('bond between %s and %s' %(i_c,o))
+                    em.RemoveBond(i_c,i_n)
+                    #print('Bond removed between %s and %s' %(i_c,i_n))
+
+                    med_mol = em.GetMol()
+                    if fix_aromaticity:
+                        i_n_aromaticity = atom_aromaticity[ lp_to_pm_ind(i_n) ]
+                        for i in ring_atoms:
+                            if atom_aromaticity[ i ] == i_n_aromaticity: #if an atom was part of same number of aromatic rings as the N atom, it shouldn't be aromatic
+                                #print('Ring atom lp:',i)
+                                pm_i = lp_to_pm_ind(i)
+                                #print('Ring atom pm:',pm_i)
+                                med_mol.GetAtomWithIdx( pm_i ).SetIsAromatic(False)
+                                #remove all aromatic bonds
+                                neighs = [x.GetIdx() for x in med_mol.GetAtoms()[ pm_i ].GetNeighbors()]
+                                aromatic_neighs = [x for x in neighs if med_mol.GetBondBetweenAtoms(pm_i,x).GetBondType()==Chem.BondType.AROMATIC]
+                                #print('Aromatic neighs of %s: %s' %(pm_i,aromatic_neighs))
+                                em = Chem.EditableMol(med_mol)
+                                for x in aromatic_neighs:
+                                    em.RemoveBond( x, pm_i )
+                                    em.AddBond(x,pm_i, Chem.BondType.SINGLE)
+                                med_mol = em.GetMol()     
                 
+                em = Chem.EditableMol(med_mol)
                 star1 = em.AddAtom(Chem.AtomFromSmiles('*'))
                 star2 = em.AddAtom(Chem.AtomFromSmiles('*'))
                 em.RemoveBond(pm.connector_inds[0],pm.connector_inds[1])
@@ -1193,13 +1243,10 @@ def ring_close_retro(lp):
                     Chem.SanitizeMol(new_mol)
                     lps.append( ru.LinearPol( ru.mol_without_atom_index(new_mol) ) )
                 except:
-                    pass
-        if lps != []:
-            return lps
-        else:
-            return None
+                    return None
+        return lps
     else:
-       return None   
+        return None
 
 fwd_rxn_labels = {
     'frp_depolymerize': 'radical/ionic polymerization',
