@@ -1179,22 +1179,32 @@ def ring_close_retro(lp):
     pm.GetSSSR()
     
     mols = []
-    lp_no_connect_inds = np.array([x for x in range(lp.mol.GetNumAtoms()) if x not in lp.star_inds])
-    def lp_to_pm_ind(lp_ind):
-        return int(np.argwhere(lp_no_connect_inds==lp_ind))
-
-    ri = lp.mol.GetRingInfo()
-    ar = ri.AtomRings()
-    ar_atom_idx = [a.GetIdx() for a in lp.mol.GetAromaticAtoms()]
-    atom_aromaticity = {a:0 for a in ar_atom_idx}
-
-    for ring in ar:
-        if ring[0] in ar_atom_idx:
-            for a in ring:
-                atom_aromaticity[a] += 1
-
     if pm.mol.HasSubstructMatch(start_match) and not pm.mol.HasSubstructMatch(end_match): 
-        matches = pm.mol.GetSubstructMatches(start_match)
+        lp_no_connect_inds = np.array([x for x in range(lp.mol.GetNumAtoms()) if x not in lp.star_inds])
+        def lp_to_pm_ind(lp_ind):
+            return int(np.argwhere(lp_no_connect_inds==lp_ind))
+        ar_atom_idx = [a.GetIdx() for a in lp.mol.GetAromaticAtoms()]
+        if len(ar_atom_idx) != 0: #only execute below for aromatic polymers. There for speed.
+            ri = lp.mol.GetRingInfo()
+            ar = ri.AtomRings()
+            atom_aromaticity = {a:0 for a in ar_atom_idx}
+
+            for ring in ar:
+                if ring[0] in ar_atom_idx:
+                    for a in ring:
+                        atom_aromaticity[a] += 1
+
+        all_matches = pm.mol.GetSubstructMatches(start_match)
+        seen = set()
+        matches = [] #unique matches
+        for match in all_matches:
+            ms = set(match) #match set
+            #print(seen.difference(ms))
+            #print(ms.difference(seen))
+            if len( ms.intersection(seen) ) == 0:
+                seen = seen.union(ms)
+                matches.append(match)
+        #matches = pm.mol.GetSubstructMatches(start_match)
         for L in range(1, len(matches)+1):
         #for L in range(2,3):
             for match_combo in itertools.combinations(matches,L):
@@ -1477,54 +1487,6 @@ class ReactionPath:
     # def SearchDoi(self,doi_dict):
     #     if self.doi is None and self.lp_exists:
     #         self.doi = doi_dict[self.can_smiles]
-    
-def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
-    '''
-    Input a list of smiles and return the synthesis pathways
-    '''
-    ReactionStepList = []
-    for x in smiles_ls:
-        mol = Chem.MolFromSmiles(x)
-        #do free-radical depolymerization
-        if radion:
-            monomer_ls = frp_depolymerize(mol)
-            if monomer_ls is not None:
-                for monomer in monomer_ls:
-                    rs = ReactionStep(monomer,mol,frp_depolymerize)
-                    ReactionStepList.append(rs)
-        #do step-growth depolymerization
-        if sg:
-            linkages = sg_rxns.keys()
-            for linkage_smiles in linkages:
-                if '#' not in linkage_smiles: #if string does not have '#' in it then it's a SMILES 
-                    linkage_mol = Chem.MolFromSmiles(linkage_smiles)
-                else:
-                    linkage_mol = Chem.MolFromSmarts(linkage_smiles)
-                for rxn_info in sg_rxns[linkage_smiles]:
-                    monomers = sg_depolymerize(x,linkage_mol,rxn_info)
-                    if monomers != None:
-                        for monomer in monomers:
-                            rs = ReactionStep(monomer,mol,sg_depolymerize)
-                            ReactionStepList.append(rs)
-        #do oxidative depolymerization
-        if ox:
-            monomer_ls = ox_depolymerize(mol)
-            if monomer_ls is not None:
-                for monomer in monomer_ls:
-                    rs = ReactionStep(monomer,mol,ox_depolymerize)
-                    ReactionStepList.append(rs)
-        #do ring-opening depolymerization
-        if ro:
-            linkages = ro_linkages.keys()
-            for l in linkages:
-                monomers = ro_depolymerize(mol,l)
-                if monomers != None:
-                    for m in monomers:
-                        rs = ReactionStep(m,mol,ro_depolymerize)
-                        ReactionStepList.append(rs)
-    keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
-    return [ReactionPath( np.array( [ReactionStepList[i]] ) ) for i in keep_inds] 
-
 
 def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
     '''
@@ -1575,7 +1537,7 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
 
 post_polymerization_rxns = [ring_close_retro] #each return type should be ***list of mols*** or ***empty*** list
 
-def retrosynthesize2(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
+def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
@@ -1583,29 +1545,28 @@ def retrosynthesize2(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactio
     for sm in smiles_ls:
         mol = Chem.MolFromSmiles(sm)
         lp = ru.LinearPol(mol)
-        sm_RxnPaths = []
+        sm_RxnPaths = [ReactionPath([],lp=lp)]
+        last_len = 0
         if chain_reactions:
             for rxn in post_polymerization_rxns:
-                if sm_RxnPaths == []:
-                    RxnSteps = [ReactionStep(product=lp.mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(mol)]
-                    keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
-                    unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
-                    sm_RxnPaths.extend( [ReactionPath([x],lp=lp) for x in unique_RxnSteps] )
-                else:
-                    for RxnPath in sm_RxnPaths:
-                        RxnSteps = [ReactionStep(product=RxnPath[-1].reactant_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(mol)]
+                for RxnPath in sm_RxnPaths:
+                    if len(sm_RxnPaths) > last_len:
+                        if len(sm_RxnPaths) == 1:
+                            curr_mol = mol #the mol to depolymerize
+                        else:
+                            curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
+                        RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(mol)]
                         keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
                         unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
                         sm_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in unique_RxnSteps] )
+                        last_len = len(sm_RxnPaths)
         
-        if sm_RxnPaths == []:
-            curr_mol = mol #the mol to depolymerize 
+        for RxnPath in sm_RxnPaths:
+            try:
+                curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol #the mol to depolymerize
+            except: 
+                curr_mol = mol
             DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
-            all_RxnPaths.extend( [ReactionPath([x],lp=lp) for x in DepolymerizationSteps] )
-        else:
-            for RxnPath in sm_RxnPaths:
-                curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
-                DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
-                #print(DepolymerizationSteps)
-                all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
+            #print(DepolymerizationSteps)
+            all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
     return all_RxnPaths
