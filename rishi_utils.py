@@ -592,14 +592,25 @@ class PeriodicMol(Chem.rdchem.Mol):
             new_ind = i - int(np.argwhere(srt==i))
             self.connector_inds.append(new_ind)
     def HasSubstructMatch(self,match_mol):
-        return self.mol.HasSubstructMatch(match_mol)
-    
+        try:
+            return self.mol.HasSubstructMatch(match_mol)
+        except:
+            self.GetSSSR()
+            return self.mol.HasSubstructMatch(match_mol)
+
     def GetSubstructMatches(self,match_mol):
-        return self.mol.GetSubstructMatches(match_mol)
+        try:
+            return self.mol.GetSubstructMatches(match_mol)
+        except:
+            self.GetSSSR()
+            return self.mol.GetSubstructMatches(match_mol)
 
     def GetSubstructMatch(self,match_mol):
-        return self.mol.GetSubstructMatch(match_mol)
-    
+        try:
+            return self.mol.GetSubstructMatch(match_mol)
+        except:
+            self.GetSSSR()
+            return self.mol.GetSubstructMatch(match_mol)     
     def GetSSSR(self):
         Chem.GetSSSR(self.mol)
 

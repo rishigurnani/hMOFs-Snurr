@@ -403,6 +403,8 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
         pm.GetSSSR()
         pm_matches = pm.GetSubstructMatches(linkage)
         ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
+        if max([len(r) for r in ar]) > 9: #don't allow large rings
+            return None
         pm_match_set = [set(match) for match in pm_matches]
         match_ring = None
         if ro_linkage_key not in ['cyclic_ether', 'cyclic_sulfide']: #most rings will only polymerize w/ one linkage
@@ -427,8 +429,6 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
                         break
                 if n_ring_matches > 1:
                     return None    
-        if len( match_ring ) > 9: #set a limit to how large the rings can be
-            return None
 
         #check selectivity
         if selectivity:
@@ -1096,11 +1096,11 @@ sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_funct
     'C1=NccO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_ar_edit)],
     'C1=NCCO1': [([Chem.MolFromSmarts('C(=O)[OH]')],[Chem.MolFromSmarts('[NH2]'),Chem.MolFromSmarts('[OH]')],cooh_nh2_oh_al_edit)],
     '*1-[#8]-[#6]-[#6]2(-[#6]-[#8]-1)-[#6]-[#8]-*-[#8]-[#6]-2': [(Chem.MolFromSmarts('[OH]'),Chem.MolFromSmarts('*=O'),oh_oh_xo_edit_6m)],
-    '[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]': [(Chem.MolFromSmarts('[NH2,nH2]'),Chem.MolFromSmarts('*[O,o]*'),nh2_xox_edit)]
+    '[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]': [(Chem.MolFromSmarts('[NH2,nH2]'),Chem.MolFromSmarts('*[OR,oR]*'),nh2_xox_edit)]
 }
 
 
-def sg_depolymerize(mol,polymer_linkage,rxn_info):
+def sg_depolymerize(mol,polymer_linkage,rxn_info,debug=False):
     '''
     Return the monomers (one w/ fxnl group g1 and the other w/ g2) that could undergo a step-growth polymerization to form mol. For now only works when input mol has only one repeat unit. Using Chris's code may help this.
     '''
@@ -1111,19 +1111,22 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
     lp = ru.LinearPol(mol)
     pm = lp.PeriodicMol()
     if pm is None: #periodization failed
-        print('None1')
+        if debug:
+            print('None1')
         return None
     try: #sometimes g1 and g2 are given as lists. If so they will fail below.
         if pm.HasSubstructMatch(g1) or pm.HasSubstructMatch(g2): #chain should not have same functional groups we want to react
-            if edit_function != nh_nco_edit: #but there are exceptions
-                print('None2')
+            if edit_function not in [nh_nco_edit,nh2_xox_edit]: #but there are exceptions
+                if debug:
+                    print('None2')
                 return None
         g1 = [g1] #do this so symmetry check will have an iterable
         g2 = [g2] #do this so symmetry check will have an iterable
     except:
         if any([pm.HasSubstructMatch(x) for x in g1] + [pm.HasSubstructMatch(x) for x in g2]): #chain should not have same functional groups we want to react
-            if edit_function != nh_nco_edit: #but there are exceptions
-                print('None3')
+            if edit_function not in [nh_nco_edit,nh2_xox_edit]: #but there are exceptions
+                if debug:
+                    print('None3')
                 return None        
     try:
         matches=pm.GetSubstructMatches(polymer_linkage)
@@ -1143,6 +1146,8 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
                 new_mol = new_mol_info[0]
                 g1_mol = new_mol_info[1]
                 g2_mol = new_mol_info[2]
+                if debug:
+                    print( Chem.MolToSmiles(g1_mol),Chem.MolToSmiles(g2_mol) )
                 if 'oh_oh_xo_edit' in str(edit_function): #g1_mol is symmetric w.r.t [OH] by construction
                     if all([is_symmetric2(g2_mol,x) for x in g2]):
                         new_mols.append(new_mol)
@@ -1150,10 +1155,10 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info):
                     if all([is_symmetric2(g1_mol,x) for x in g1] + [is_symmetric2(g2_mol,x) for x in g2]): #symmetry function includes a check to make sure there are only 2 matches
                         new_mols.append(new_mol)
     if new_mols == []:
-        print('None4')
+        if debug:
+            print('None4')
         return None
     else:
-        print('None5')
         return new_mols
     #return new_mols_info
 
@@ -1161,6 +1166,7 @@ def ring_close_retro(lp):
     '''
     Reverse of Ring-closing which will occur after addition of heat
     Source: Reynolds Class Notes, 8-25-20, p.2
+    Test SMILES: '*c5ccc(Oc4ccc(n3c(=O)c2cc1c(=O)n(*)c(=O)c1cc2c3=O)cc4)cc5'
     '''
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
@@ -1168,9 +1174,11 @@ def ring_close_retro(lp):
     start_match = Chem.MolFromSmarts('[cR,CR](=O)[nR,NR]')
     end_match = Chem.MolFromSmarts('[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]')
     pm = lp.PeriodicMol()
+    if pm is None:
+        return []
     pm.GetSSSR()
     
-    lps = []
+    mols = []
     lp_no_connect_inds = np.array([x for x in range(lp.mol.GetNumAtoms()) if x not in lp.star_inds])
     def lp_to_pm_ind(lp_ind):
         return int(np.argwhere(lp_no_connect_inds==lp_ind))
@@ -1241,40 +1249,43 @@ def ring_close_retro(lp):
                 new_mol=em.GetMol()
                 try:
                     Chem.SanitizeMol(new_mol)
-                    lps.append( ru.LinearPol( ru.mol_without_atom_index(new_mol) ) )
+                    mols.append( ru.mol_without_atom_index(new_mol) )
                 except:
-                    return None
-        return lps
+                    return []
+        return mols
     else:
-        return None
+        return []
 
 fwd_rxn_labels = {
     'frp_depolymerize': 'radical/ionic polymerization',
     'sg_depolymerize': 'step growth polymerization',
     'ox_depolymerize': 'oxidative polymerization',
-    'ro_depolymerize': 'ring-opening polymerization'
+    'ro_depolymerize': 'ring-opening polymerization',
+    'ring_close_retro': '\u0394 and ring-closure'
 }
 
-def drawRxn(p_mol,monomer=None,dp_func=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title='', legend_adds=['']):
+def drawRxn(p_mol,r_mols=None,dp_func_ls=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title='', legend_adds=['']):
     '''
     Return the single-step polymerization, reverse of dp_func, of a polymer, p_mol. extra_args are for compatability with step_growth. Legend adds are list of strings that will be added below each legend.
     '''
     if type(p_mol) == str:
         p_mol = Chem.MolFromSmiles(p_mol)
-    if monomer is None:
+    if r_mols is None:
         try:
-            monomer = dp_func(p_mol)
+            r_mols = dp_func_ls[0](p_mol)
         except:
             dp_func = sg_depolymerize
-            monomer = dp_func(p_mol,extra_arg1,extra_arg2)
-    if type(monomer) != list:
-        monomer = [monomer]
-    all_mols = ru.flatten_ll([[monomer[i],p_mol] for i in range(len(monomer))])
+            r_mols = dp_func_ls(p_mol,extra_arg1,extra_arg2)
+    if type(r_mols) != list:
+        r_mols = [r_mols]
+    #all_mols = ru.flatten_ll([[r_mols[i],p_mol] for i in range(len(r_mols))])
+    all_mols = r_mols + [p_mol]
     try:
-        rxn_labels = [fwd_rxn_labels[dp_func] for i in range(len(monomer))]
+        rxn_labels = [fwd_rxn_labels[dp_func] for dp_func in dp_func_ls]
     except:
-        rxn_labels = ['reaction' for i in range(len(monomer))]
-    all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(rxn_labels[i])] for i in range(len(monomer))])
+        rxn_labels = ['reaction' for i in range(len(r_mols))]
+    #all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(rxn_labels[i])] for i in range(len(r_mols))])
+    all_legends = ['0'] + ['%s: After %s of %s' %(i+1,rxn_labels[i],i) for i in range(len(r_mols))]
     #return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
     return ru.MolsToGridImage(all_mols,labels=all_legends,molsPerRow=2,ImgSize=imgSize,title=title)
 
@@ -1381,11 +1392,13 @@ def search_polymer(lp,polymer_set):
     
 
 class ReactionPath:
-    def __init__(self, reaction_step_arr):
-        self.reaction_step_arr = reaction_step_arr
-        self.n_steps = self.reaction_step_arr.size
-        self.lp = ru.LinearPol(reaction_step_arr[-1].product_mol) #is a polymer
-        self.lp_smiles = reaction_step_arr[-1].product_smiles
+    def __init__(self, reaction_step_ls, lp=None):
+        self.reaction_step_ls = reaction_step_ls
+        if lp is None:
+            self.lp = ru.LinearPol(reaction_step_ls[-1].product_mol) #is a polymer
+        else:
+            self.lp = lp
+        self.lp_smiles = self.lp.SMILES
         self.lp_syn_score = None
         self.can_smiles = None
         self.lp_exists = None
@@ -1394,6 +1407,7 @@ class ReactionPath:
         self.catalog = None
         self.synthetic_scores = None
         self.syn_class = None
+        self.r_mols = None
     
     def SearchPolymer(self,pol_dict):
         for n in range(4):
@@ -1408,29 +1422,41 @@ class ReactionPath:
                     self.lp_exists = False
                     pass
     
-    def DrawStep(self,size=(6, 4)):
-        if self.n_steps == 1:
-            return self.reaction_step_arr[0].DrawStep(size=size,title_add='\nSynthetic Complexity: {:.2f}'.format( self.lp_syn_score ))
+    def DrawSteps(self,size=(6, 4)):
+        if self.lp_syn_score is None:
+            title_add = ''
+        else:
+            title_add = title_add='\nSynthetic Complexity: {:.2f}'.format( self.lp_syn_score )
+        
+        if self.GetNSteps() == 1:
+            return self.reaction_step_ls[0].DrawStep(size=size,title_add=title_add)
+        else:
+            title = 'Reaction'
+            title += title_add
+            if self.r_mols is None:
+                self.r_mols = [x.reactant_mol for x in reversed(self.reaction_step_ls)]
+            dp_func_ls = list(reversed([x.rxn_fn for x in self.reaction_step_ls]))
+            drawRxn(self.lp.mol,self.r_mols,dp_func_ls,imgSize=size,title=title)            
 
     def DrawCatalog(self):
-        if self.n_steps == 1:
-            return self.reaction_step_arr[0].DrawCatalog()
+        if self.GetNSteps() == 1:
+            return self.reaction_step_ls[0].DrawCatalog()
 
     def SearchReactants(self,mol_set):
         if self.catalog is None:
-            for rs in self.reaction_step_arr:
+            for rs in self.reaction_step_ls:
                 rs.SearchReactants(mol_set)
-            if self.n_steps == 1:
-                self.catalog = self.reaction_step_arr[0].catalog
+            if self.GetNSteps() == 1:
+                self.catalog = self.reaction_step_ls[0].catalog
     
     def SyntheticScore(self):
         if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
             raise LookupError('Catalog is equal to None')
         elif self.lp_syn_score is None:
-            for rs in self.reaction_step_arr:
+            for rs in self.reaction_step_ls:
                 rs.SyntheticScore()
-            if self.n_steps == 1:
-                self.synthetic_scores = self.reaction_step_arr[0].synthetic_scores            
+            if self.GetNSteps() == 1:
+                self.synthetic_scores = self.reaction_step_ls[0].synthetic_scores            
             self.lp_syn_score = float(np.product(self.synthetic_scores))
 
     def SyntheticClass(self):
@@ -1444,11 +1470,15 @@ class ReactionPath:
             else:
                 self.syn_class = 4
         return self.syn_class
+    
+    def GetNSteps(self):
+        return len(self.reaction_step_ls)
+
     # def SearchDoi(self,doi_dict):
     #     if self.doi is None and self.lp_exists:
     #         self.doi = doi_dict[self.can_smiles]
     
-def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True):
+def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
@@ -1494,3 +1524,88 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True):
                         ReactionStepList.append(rs)
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
     return [ReactionPath( np.array( [ReactionStepList[i]] ) ) for i in keep_inds] 
+
+
+def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
+    '''
+    Input a list of smiles and return the synthesis pathways
+    '''
+    ReactionStepList = []
+    #do free-radical depolymerization
+    if radion:
+        monomer_ls = frp_depolymerize(mol)
+        if monomer_ls is not None:
+            for monomer in monomer_ls:
+                rs = ReactionStep(monomer,mol,frp_depolymerize)
+                ReactionStepList.append(rs)
+    #do step-growth depolymerization
+    if sg:
+        linkages = sg_rxns.keys()
+        for linkage_smiles in linkages:
+            if '#' not in linkage_smiles: #if string does not have '#' in it then it's a SMILES 
+                linkage_mol = Chem.MolFromSmiles(linkage_smiles)
+            else:
+                linkage_mol = Chem.MolFromSmarts(linkage_smiles)
+            for rxn_info in sg_rxns[linkage_smiles]:
+                if debug:
+                    print('##### %s #####' %linkage_smiles)
+                monomers = sg_depolymerize(mol,linkage_mol,rxn_info,debug=debug)
+                if monomers != None:
+                    for monomer in monomers:
+                        rs = ReactionStep(monomer,mol,sg_depolymerize)
+                        ReactionStepList.append(rs)
+    #do oxidative depolymerization
+    if ox:
+        monomer_ls = ox_depolymerize(mol)
+        if monomer_ls is not None:
+            for monomer in monomer_ls:
+                rs = ReactionStep(monomer,mol,ox_depolymerize)
+                ReactionStepList.append(rs)
+    #do ring-opening depolymerization
+    if ro:
+        linkages = ro_linkages.keys()
+        for l in linkages:
+            monomers = ro_depolymerize(mol,l)
+            if monomers != None:
+                for m in monomers:
+                    rs = ReactionStep(m,mol,ro_depolymerize)
+                    ReactionStepList.append(rs)
+    keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
+    return [ReactionStepList[i] for i in keep_inds] 
+
+post_polymerization_rxns = [ring_close_retro] #each return type should be ***list of mols*** or ***empty*** list
+
+def retrosynthesize2(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
+    '''
+    Input a list of smiles and return the synthesis pathways
+    '''
+    all_RxnPaths = []
+    for sm in smiles_ls:
+        mol = Chem.MolFromSmiles(sm)
+        lp = ru.LinearPol(mol)
+        sm_RxnPaths = []
+        if chain_reactions:
+            for rxn in post_polymerization_rxns:
+                if sm_RxnPaths == []:
+                    RxnSteps = [ReactionStep(product=lp.mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(mol)]
+                    keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
+                    unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
+                    sm_RxnPaths.extend( [ReactionPath([x],lp=lp) for x in unique_RxnSteps] )
+                else:
+                    for RxnPath in sm_RxnPaths:
+                        RxnSteps = [ReactionStep(product=RxnPath[-1].reactant_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(mol)]
+                        keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
+                        unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
+                        sm_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in unique_RxnSteps] )
+        
+        if sm_RxnPaths == []:
+            curr_mol = mol #the mol to depolymerize 
+            DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
+            all_RxnPaths.extend( [ReactionPath([x],lp=lp) for x in DepolymerizationSteps] )
+        else:
+            for RxnPath in sm_RxnPaths:
+                curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
+                DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
+                #print(DepolymerizationSteps)
+                all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
+    return all_RxnPaths
