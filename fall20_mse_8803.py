@@ -66,6 +66,8 @@ def frp_depolymerize(mol,strict=True):
         if len(mc_match3) == 1:
             rxn = Chem.AllChem.ReactionFromSmarts('[*:1][CR:3]([#0:2])[CHR:4]=[CHR:5][CR:6]([#0:7])[*:9]>>[*:1][CR:3]=[CR:4][CR:5]=[CR:6][*:9]')
             prods = rxn.RunReactants((lp.mol,))
+            if len(prods) == 0:
+                return None
             new_mol = prods[0][0]
             try:
                 Chem.SanitizeMol(new_mol)
