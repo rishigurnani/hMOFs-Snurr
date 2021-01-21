@@ -284,10 +284,17 @@ def hydrogenate_chain(lp,max_replacements=1):
         for combo in itertools.combinations(single_bonds,L):
             mol_copy = Chem.MolFromSmiles(lp.SMILES)
             try:
+                clean_edit = False
                 for bond in combo:
-                    mol_copy.GetBondWithIdx(bond).SetBondType(Chem.BondType.DOUBLE)
-                Chem.SanitizeMol(mol_copy)
-                mols.append(mol_copy)
+                    if (mol_copy.GetAtomWithIdx(mol_copy.GetBondWithIdx(bond).GetBeginAtomIdx()).GetNumImplicitHs() > 0) and (mol_copy.GetAtomWithIdx(mol_copy.GetBondWithIdx(bond).GetEndAtomIdx()).GetNumImplicitHs() > 0):
+                        mol_copy.GetBondWithIdx(bond).SetBondType(Chem.BondType.DOUBLE)
+                        clean_edit = True
+                    else:
+                        clean_edit = False
+                        break
+                if clean_edit:
+                    Chem.SanitizeMol(mol_copy)
+                    mols.append(mol_copy)
                 mol_copy = None
             except:
                 pass
@@ -1622,20 +1629,16 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reaction
                 print('inner_RxnPaths len:', len(inner_RxnPaths))
             print('sm_RxnPaths len:', len(sm_RxnPaths))
         
-        i = 0
         for RxnPath in sm_RxnPaths:
             try:
                 curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol #the mol to depolymerize
             except: 
                 curr_mol = RxnPath.lp.mol
-            print(curr_mol)
-            print(i)
             try:
                 DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
             except:
                 return RxnPath
             #print(DepolymerizationSteps)
             all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
-            i+=1
 
     return all_RxnPaths
