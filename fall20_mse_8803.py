@@ -7,6 +7,7 @@ import numpy as np
 import sys
 import matplotlib.pyplot as plt
 sys.path.append('/data/rgur/retrosynthesis/scscore')
+import re
 
 ### set up scscore ###
 from scscore import standalone_model_numpy as sc
@@ -263,30 +264,34 @@ def hclify(mol):
             except:
                 pass
     return new
- 
-def hydrogenate_chain(mol):
+
+def hydrogenate_chain(lp,max_replacements=1):
     '''
-    Return a list of pol-mols which each contain a hydrogenated version of mol
+    Return a list of pol-mols which each contain a hydrogenated version of mol. We set max_replacements to 1 since only one double-bond is needed for ADMET.
     '''
     
-    if type(mol) == str:
-        mol = Chem.MolFromSmiles(mol)
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        lp = ru.LinearPol(lp)
         
-    patt = Chem.MolFromSmiles('CC')
+    ri = lp.mol.GetRingInfo()
+    br = ru.flatten_ll(ri.BondRings())
     
-    matches = mol.GetSubstructMatches(patt)
-    
-    new = []
-    for bonds in matches:
-        em = Chem.EditableMol(mol)
-        em.RemoveBond(bonds[0],bonds[1])
-        em.AddBond(bonds[0],bonds[1],Chem.BondType.DOUBLE)
-        try:
-            Chem.SanitizeMol(em.GetMol())
-            new.append(em.GetMol())
-        except:
-            pass
-    return new
+    single_bonds = set([b.GetIdx() for b in lp.mol.GetBonds() if (b.GetBondType() == Chem.BondType.SINGLE) and (b.GetIdx() not in br)]).difference([b.GetIdx() for b in lp.mol.GetAtomWithIdx(lp.star_inds[0]).GetBonds()]+[b.GetIdx() for b in lp.mol.GetAtomWithIdx(lp.star_inds[1]).GetBonds()])
+
+    n_single_bonds = min(len(single_bonds),max_replacements) #cap the number of single_bonds that can be replaced for performance reasons
+    mols = []
+    for L in range(1,n_single_bonds+1):
+        for combo in itertools.combinations(single_bonds,L):
+            mol_copy = Chem.MolFromSmiles(lp.SMILES)
+            try:
+                for bond in combo:
+                    mol_copy.GetBondWithIdx(bond).SetBondType(Chem.BondType.DOUBLE)
+                Chem.SanitizeMol(mol_copy)
+                mols.append(mol_copy)
+                mol_copy = None
+            except:
+                pass
+    return mols
 
 def admet_depolymerize(lp):
     if type(lp) == str: #only for convenience. Pass in LinearPol object when possible
@@ -1162,6 +1167,51 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info,debug=False):
         return new_mols
     #return new_mols_info
 
+func_chain_rxns = {'nitro_base':Chem.MolFromSmarts('n[*R0]')}
+
+def func_chain_retro(lp,rxn='nitro_base'):
+    '''
+    Functions to retrosynthetically functionalize chains
+    '''
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        lp = ru.LinearPol(lp)
+    # if rxn == 'nitro_base':
+    #     r_mol = lp.MainChainMol()#reduced mol 
+    # if rxn != 'nitro_base':
+    #     r_mol = r_mol.PeriodicMol()
+    replace_group = func_chain_rxns[rxn]
+    sc_matches = lp.SideChainMol().GetSubstructMatches(replace_group)
+    if len(sc_matches) != 0:
+        return []
+    matches=lp.mol.GetSubstructMatches(replace_group)
+    if len(matches) == 0:
+        return []
+    flat_matches = ru.flatten_ll(matches)
+    if lp.star_inds[0] in flat_matches or lp.star_inds[1] in flat_matches: #make sure the connector inds aren't being matched
+        return []
+    else:
+        print('nitro_base_match')
+        frag_mol=Chem.FragmentOnBonds(lp.mol,[lp.mol.GetBondBetweenAtoms(i,j).GetIdx() for i,j in matches])
+        frag_mols = Chem.GetMolFrags(frag_mol)[1:]
+        frag_ls = Chem.MolToSmiles(ru.mol_without_atom_index(frag_mol)).split('.')[1:]
+        frag_ls = [re.sub('\[[0-9]+\*\]','*',s) for s in frag_ls]
+        unique_frags = {}#SMILES - list of atom matches
+        for i,s in enumerate(frag_ls):
+            if s not in unique_frags:
+                unique_frags[s] = list(frag_mols[i])
+            else:
+                unique_frags[s].extend(frag_mols[i])
+        mols = []
+        #for L in range( 1,len(unique_frags.keys())+1 ):
+        for combo_matches in unique_frags.values():
+            all_atoms = set(range(lp.mol.GetNumAtoms()))
+            keep_atoms = all_atoms.difference(combo_matches)
+            mols.append( lp.SubChainMol(lp.mol,[lp.mol.GetAtomWithIdx(x) for x in keep_atoms]) )
+        return mols
+    
+
+
+
 def ring_close_retro(lp):
     '''
     Reverse of Ring-closing which will occur after addition of heat
@@ -1171,7 +1221,7 @@ def ring_close_retro(lp):
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     
-    start_match = Chem.MolFromSmarts('[cR,CR](=O)[nR,NR]')
+    start_match = Chem.MolFromSmarts('[c,C;!R0;!R1](=O)[n,N;!R0;!R1]')
     end_match = Chem.MolFromSmarts('[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]')
     pm = lp.PeriodicMol()
     if pm is None:
@@ -1271,7 +1321,8 @@ fwd_rxn_labels = {
     'sg_depolymerize': 'step growth polymerization',
     'ox_depolymerize': 'oxidative polymerization',
     'ro_depolymerize': 'ring-opening polymerization',
-    'ring_close_retro': '\u0394 and ring-closure'
+    'ring_close_retro': '\u0394 and ring-closure',
+    'hydrogenate_chain': 'hydrogenation'
 }
 
 def drawRxn(p_mol,r_mols=None,dp_func_ls=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title='', legend_adds=['']):
@@ -1438,15 +1489,15 @@ class ReactionPath:
         else:
             title_add = title_add='\nSynthetic Complexity: {:.2f}'.format( self.lp_syn_score )
         
-        if self.GetNSteps() == 1:
-            return self.reaction_step_ls[0].DrawStep(size=size,title_add=title_add)
-        else:
-            title = 'Reaction'
-            title += title_add
-            if self.r_mols is None:
-                self.r_mols = [x.reactant_mol for x in reversed(self.reaction_step_ls)]
-            dp_func_ls = list(reversed([x.rxn_fn for x in self.reaction_step_ls]))
-            drawRxn(self.lp.mol,self.r_mols,dp_func_ls,imgSize=size,title=title)            
+        # if self.GetNSteps() == 1:
+        #     return self.reaction_step_ls[0].DrawStep(size=size,title_add=title_add)
+        #else:
+        title = 'Reaction'
+        title += title_add
+        if self.r_mols is None:
+            self.r_mols = [x.reactant_mol for x in reversed(self.reaction_step_ls)]
+        dp_func_ls = list(reversed([x.rxn_fn for x in self.reaction_step_ls]))
+        drawRxn(self.lp.mol,self.r_mols,dp_func_ls,imgSize=size,title=title)            
 
     def DrawCatalog(self):
         if self.GetNSteps() == 1:
@@ -1535,7 +1586,7 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
     return [ReactionStepList[i] for i in keep_inds] 
 
-post_polymerization_rxns = [ring_close_retro] #each return type should be ***list of mols*** or ***empty*** list
+post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain] #each return type should be ***list of mols*** or ***empty*** list
 
 def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
     '''
@@ -1546,27 +1597,37 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reaction
         mol = Chem.MolFromSmiles(sm)
         lp = ru.LinearPol(mol)
         sm_RxnPaths = [ReactionPath([],lp=lp)]
-        last_len = 0
+        print('#######')
+        print(sm)
         if chain_reactions:
             for rxn in post_polymerization_rxns:
+                #print(str(rxn))
+                inner_RxnPaths = []
                 for RxnPath in sm_RxnPaths:
-                    if len(sm_RxnPaths) > last_len:
-                        if len(sm_RxnPaths) == 1:
-                            curr_mol = mol #the mol to depolymerize
-                        else:
-                            curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
-                        RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(mol)]
-                        keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
-                        unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
-                        sm_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in unique_RxnSteps] )
-                        last_len = len(sm_RxnPaths)
+                    if RxnPath.reaction_step_ls == []:
+                        curr_mol = mol #the mol to depolymerize
+                    else:
+                        curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
+                    RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol)]
+                    #print('RxnSteps len:', len(RxnSteps))
+                    keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
+                    #print('Unique RxnSteps len:',len(keep_inds))
+                    unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
+                    inner_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in unique_RxnSteps] )
+                sm_RxnPaths = sm_RxnPaths + inner_RxnPaths #update sm_RxnPaths
+                #print('inner_RxnPaths len:', len(inner_RxnPaths))
+            print('sm_RxnPaths len:', len(sm_RxnPaths))
         
         for RxnPath in sm_RxnPaths:
             try:
                 curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol #the mol to depolymerize
             except: 
                 curr_mol = mol
-            DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
+            try:
+                DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
+            except:
+                return RxnPath
             #print(DepolymerizationSteps)
             all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
+
     return all_RxnPaths

@@ -660,7 +660,7 @@ class LinearPol(Chem.rdchem.Mol):
         for i in self.side_chain_rings:
             side_chain_atom_inds = side_chain_atom_inds.union(ri.AtomRings()[i])
         side_chain_atom_inds = side_chain_atom_inds.union([x for x in range(self.mol.GetNumAtoms()) if x not in inds])
-        return np.array([self.mol.GetAtomWithIdx(i) for i in inds]),np.array([self.mol.GetAtomWithIdx(i) for i in side_chain_atom_inds])
+        self.main_chain_atoms, self.side_chain_atoms = np.array([self.mol.GetAtomWithIdx(i) for i in inds]),np.array([self.mol.GetAtomWithIdx(i) for i in side_chain_atom_inds])
         #inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1]) if x not in self.star_inds]
         #inds=[x for x in Chem.GetShortestPath(self.mol,self.star_inds[0],self.star_inds[1])]
         
@@ -682,7 +682,7 @@ class LinearPol(Chem.rdchem.Mol):
             em.RemoveAtom(self.star_inds[0])
             return PeriodicMol( em.GetMol(),self.star_inds,self.connector_inds )
         except:
-            print('!!!Periodization Failed!!!')
+            print('!!!Periodization of %s Failed!!!' %self.SMILES)
             if repeat_unit_on_fail == False:
                 return None
             else:
@@ -696,12 +696,38 @@ class LinearPol(Chem.rdchem.Mol):
         for i in reversed(range(len(mol.GetAtoms()))):
             if i not in keep_atoms_idx:
                 em.RemoveAtom(i)
+        m = em.GetMol()
         try:
-            m = em.GetMol()
             Chem.SanitizeMol(m)
             return m
         except:
-            return None    
+            try: 
+                #reset numHs 
+                mol_atoms_in_m = np.sort(keep_atoms_idx)
+                discard_atoms_idx = set(range(self.mol.GetNumAtoms())).difference(keep_atoms_idx)
+                for i in discard_atoms_idx:
+                    neighs_idx = [x.GetIdx() for x in self.mol.GetAtomWithIdx(i).GetNeighbors()]
+                    fragment_ind = set(neighs_idx).intersection(keep_atoms_idx)
+                    for j in fragment_ind:
+                        num_h = int(self.mol.GetBondBetweenAtoms(i,j).GetBondTypeAsDouble())
+                        m_ind = int(np.argwhere(mol_atoms_in_m==j))
+                        m_atom = m.GetAtomWithIdx(m_ind)
+                        m_atom.SetNumExplicitHs(num_h)
+                
+                #force all rings to be aromatic
+                aromatic_atom_inds = [x.GetIdx() for x in m.GetAromaticAtoms()]
+                ri = m.GetRingInfo()
+                ar = ri.AtomRings()
+                br = ri.BondRings()
+                for i in range(len(br)):
+                    if ar[i][0] in aromatic_atom_inds:
+                        for b in br[i]:
+                            bond = m.GetBondWithIdx(b)
+                            bond.SetBondType(Chem.BondType.AROMATIC)
+                Chem.SanitizeMol(m)
+                return m    
+            except:
+                return None
 
     def SubChainMol2(self,mol,keep_atoms_idx):
         em = Chem.EditableMol(mol)
@@ -717,7 +743,7 @@ class LinearPol(Chem.rdchem.Mol):
     
     def MainChainMol(self):
         if self.main_chain_atoms is None:
-            self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
+            self.get_main_chain()
         mol = self.SubChainMol(self.mol,self.main_chain_atoms)
         return LinearPol(mol,self.SMILES)
         #return mol
@@ -746,7 +772,7 @@ class LinearPol(Chem.rdchem.Mol):
 
     def SideChainMol(self):
         if self.main_chain_atoms is None:
-            self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
+            self.get_main_chain()
         mol = self.SubChainMol(self.mol,self.side_chain_atoms)
         return mol
     
@@ -1085,7 +1111,7 @@ def bind_frags(m1,m1_tail,m2,m2_head,m1_connector=None,m2_connector=None):
     em.RemoveAtom(m2_head + m1.GetNumAtoms() - 1)
     new_mol = em.GetMol()
     try:
-        Chem.SanitizeMol(new_mol)
+        #Chem.SanitizeMol(new_mol)
         return new_mol
     except:
         return None
