@@ -38,24 +38,41 @@ def frp_depolymerize(mol,strict=True):
     if strict:
         main_chain_patt1 = Chem.MolFromSmarts('[#0]C[CH2][#0]')
         main_chain_patt2 = Chem.MolFromSmiles('*C=[CH]*')
+        main_chain_patt3 = Chem.MolFromSmarts('[#0][CR][CHR]=[CHR][CR][#0]')
     else:
         main_chain_patt1 = Chem.MolFromSmiles('*CC*')
         main_chain_patt2 = Chem.MolFromSmiles('*C=C*')
+        main_chain_patt3 = Chem.MolFromSmarts('[#0][CR][CR]=[CR][CR][#0]')
 
     side_chain_patt1 = Chem.MolFromSmiles('C=C')
     side_chain_patt2 = Chem.MolFromSmiles('C#C')
     side_chain_patt3 = Chem.MolFromSmarts('[OH]')
+    side_chain_patt4 = Chem.MolFromSmarts('[CR]=[CR][CR]=[CR]')
+    side_chain_patt5 = Chem.MolFromSmarts('[c]')
+
     sc_mol = ru.LinearPol(mol).SideChainMol()
     if sc_mol is not None:
-        sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3)
+        sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3) or sc_mol.HasSubstructMatch(side_chain_patt4) or sc_mol.HasSubstructMatch(side_chain_patt5)
     else:
         sc_matches = False #if there is no side-chain mol then there can't be any matches
     
-    mc_match1 = mol.GetSubstructMatch(main_chain_patt1)
-    mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
     if not sc_matches:
         lp = ru.LinearPol(mol)
-        #n_connectors = len(set(lp.connector_inds))
+        
+        mc_match1 = mol.GetSubstructMatch(main_chain_patt1)
+        mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
+        mc_match3 = mol.GetSubstructMatches(main_chain_patt3)
+        
+        if len(mc_match3) == 1:
+            rxn = Chem.AllChem.ReactionFromSmarts('[*:1][CR:3]([#0:2])[CHR:4]=[CHR:5][CR:6]([#0:7])[*:9]>>[*:1][CR:3]=[CR:4][CR:5]=[CR:6][*:9]')
+            prods = rxn.RunReactants((lp.mol,))
+            new_mol = prods[0][0]
+            try:
+                Chem.SanitizeMol(new_mol)
+                return [new_mol]
+            except:
+                return None
+
         if len(mc_match1) > 0:
             if strict:
                 if mol.GetAtoms()[mc_match1[1]].GetNumImplicitHs() < 1: #cieling temperature AND ring consideration
