@@ -1588,7 +1588,7 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
 
 post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain] #each return type should be ***list of mols*** or ***empty*** list
 
-def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True):
+def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
@@ -1597,15 +1597,19 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reaction
         mol = Chem.MolFromSmiles(sm)
         lp = ru.LinearPol(mol)
         sm_RxnPaths = [ReactionPath([],lp=lp)]
+        if dimerize:
+            lp2 = lp.multiply(2)
+            Chem.GetSSSR(lp2.mol)
+            sm_RxnPaths += [ReactionPath([],lp=lp2)]
         print('#######')
         print(sm)
         if chain_reactions:
             for rxn in post_polymerization_rxns:
-                #print(str(rxn))
+                print(str(rxn))
                 inner_RxnPaths = []
                 for RxnPath in sm_RxnPaths:
                     if RxnPath.reaction_step_ls == []:
-                        curr_mol = mol #the mol to depolymerize
+                        curr_mol = RxnPath.lp.mol #the mol to depolymerize
                     else:
                         curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
                     RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol)]
@@ -1615,19 +1619,23 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reaction
                     unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
                     inner_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in unique_RxnSteps] )
                 sm_RxnPaths = sm_RxnPaths + inner_RxnPaths #update sm_RxnPaths
-                #print('inner_RxnPaths len:', len(inner_RxnPaths))
+                print('inner_RxnPaths len:', len(inner_RxnPaths))
             print('sm_RxnPaths len:', len(sm_RxnPaths))
         
+        i = 0
         for RxnPath in sm_RxnPaths:
             try:
                 curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol #the mol to depolymerize
             except: 
-                curr_mol = mol
+                curr_mol = RxnPath.lp.mol
+            print(curr_mol)
+            print(i)
             try:
                 DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
             except:
                 return RxnPath
             #print(DepolymerizationSteps)
             all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
+            i+=1
 
     return all_RxnPaths
