@@ -1434,8 +1434,15 @@ fwd_rxn_labels = {
     'ro_depolymerize': 'ring-opening polymerization',
     'ring_close_retro': '\u0394 and ring-closure',
     'hydrogenate_chain': 'hydrogenation',
-    'elim_RCO2H_retro': '\u0394 and RCO2H elimination'.translate(SUB)
 }
+
+def LabelReaction(rxn_string):
+    if 'elim_retro' in rxn_string:
+        elim_group = rxn_string.split('.')[1]
+        return str('\u0394 and %s elimination' %elim_group).translate(SUB)
+    if rxn_string in fwd_rxn_labels.keys():
+        return fwd_rxn_labels[rxn_string]
+    return 'reaction'
 
 def drawRxn(p_mol,r_mols=None,dp_func_ls=None,extra_arg1=None,extra_arg2=None,imgSize=(6,4),title='', legend_adds=['']):
     '''
@@ -1453,17 +1460,12 @@ def drawRxn(p_mol,r_mols=None,dp_func_ls=None,extra_arg1=None,extra_arg2=None,im
         r_mols = [r_mols]
     #all_mols = ru.flatten_ll([[r_mols[i],p_mol] for i in range(len(r_mols))])
     all_mols = r_mols + [p_mol]
-    try:
-        rxn_labels = [fwd_rxn_labels[dp_func] for dp_func in dp_func_ls]
-    except:
-        rxn_labels = ['reaction' for i in range(len(r_mols))]
-    #all_legends = ru.flatten_ll([['0', '1: After %s of 0' %(rxn_labels[i])] for i in range(len(r_mols))])
+    rxn_labels = [LabelReaction(dp_func) for dp_func in dp_func_ls]
     all_legends = ['0'] + ['%s: After %s of %s' %(i+1,rxn_labels[i],i) for i in range(len(r_mols))]
-    #return Chem.Draw.MolsToGridImage(all_mols,legends=all_legends,molsPerRow=2,subImgSize=(400, 400))
     return ru.MolsToGridImage(all_mols,labels=all_legends,molsPerRow=2,ImgSize=imgSize,title=title)
 
 class ReactionStep:
-    def __init__(self, reactant, product, rxn_fn_hash): 
+    def __init__(self, reactant, product, rxn_fn_hash, addl_rxn_info=''): 
         self.reactant_mol = reactant
         self.reactant_frags = Chem.GetMolFrags(self.reactant_mol, asMols=True)
         self.reactant_frag_smiles = [Chem.MolToSmiles(mol) for mol in self.reactant_frags]
@@ -1472,6 +1474,8 @@ class ReactionStep:
         self.product_smiles = Chem.MolToSmiles(self.product_mol).replace('*','[*]') #replace is there for historical reasons
         self.rxn_fn_hash = rxn_fn_hash
         self.rxn_fn = str(rxn_fn_hash).split(' ')[1]
+        if addl_rxn_info != '':
+            self.rxn_fn = self.rxn_fn + '.' + addl_rxn_info
         self.catalog = None
         self.synthetic_scores = None
         self.poly_syn_score = None #synthetic complexity of polymer. TODO: change this name
@@ -1581,6 +1585,7 @@ class ReactionPath:
         self.synthetic_scores = None
         self.syn_class = None
         self.r_mols = None
+        self.depolymerization_step = None
     
     def SearchPolymer(self,pol_dict):
         for n in range(4):
@@ -1616,21 +1621,26 @@ class ReactionPath:
             return self.reaction_step_ls[0].DrawCatalog()
 
     def SearchReactants(self,mol_set):
+        if self.depolymerization_step is None:
+            self.GetPolymerizationStep()
         if self.catalog is None:
-            for rs in self.reaction_step_ls:
-                rs.SearchReactants(mol_set)
-            if self.GetNSteps() == 1:
-                self.catalog = self.reaction_step_ls[0].catalog
+            self.catalog = self.depolymerization_step.SearchReactants(mol_set)
     
-    def SyntheticScore(self):
+    def SyntheticScore(self,solubility=True):
+        '''
+        If solubulity=True, the solubility of the polymer pre-cursor is used in scoring
+        '''
         if self.catalog is None: #synthetic score cannot be computed without first running SearchReactants
-            raise LookupError('Catalog is equal to None')
-        elif self.lp_syn_score is None:
-            for rs in self.reaction_step_ls:
-                rs.SyntheticScore()
-            if self.GetNSteps() == 1:
-                self.synthetic_scores = self.reaction_step_ls[0].synthetic_scores            
-            self.lp_syn_score = float(np.product(self.synthetic_scores))
+           raise ValueError('First call SeachReactants with a mol_set')
+        if self.lp_syn_score is None:
+            self.synthetic_scores = self.depolymerization_step.SyntheticScore()            
+            solubility_score = 1
+            if solubility:
+                if not ru.is_soluble(self.depolymerization_step.product_mol):
+                    solubility_score = 2.5
+            n_steps = self.GetNSteps()
+            self.lp_syn_score = float(np.product(self.synthetic_scores))*solubility_score*(1.25)**(n_steps-1)
+        return self.lp_syn_score
 
     def SyntheticClass(self):
         if self.syn_class is None and self.lp_exists is not None and self.catalog is not None:
@@ -1646,6 +1656,11 @@ class ReactionPath:
     
     def GetNSteps(self):
         return len(self.reaction_step_ls)
+
+    def GetPolymerizationStep(self): 
+        self.depolymerization_step = list(filter(lambda x: 'depolymerize' in x.rxn_fn, self.reaction_step_ls))[0]
+        return self.depolymerization_step
+    
 
     # def SearchDoi(self,doi_dict):
     #     if self.doi is None and self.lp_exists:
@@ -1704,6 +1719,9 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reaction
     '''
     Input a list of smiles and return the synthesis pathways
     '''
+    if type(smiles_ls) == 'str': #handle case of one string passed in
+        smiles_ls = [smiles_ls]
+
     all_RxnPaths = []
     for sm in smiles_ls:
         mol = Chem.MolFromSmiles(sm)
@@ -1724,7 +1742,12 @@ def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reaction
                         curr_mol = RxnPath.lp.mol #the mol to depolymerize
                     else:
                         curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
-                    RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol)]
+                    if 'elim_retro' in str(rxn):
+                        RxnSteps = []
+                        for elim_group in elim_rxns.keys():
+                           RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
+                    else:
+                        RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol)]
                     #print('RxnSteps len:', len(RxnSteps))
                     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
                     #print('Unique RxnSteps len:',len(keep_inds))
