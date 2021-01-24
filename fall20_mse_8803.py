@@ -286,7 +286,7 @@ def hclify(mol):
 
 def hydrogenate_chain(lp,max_replacements=1):
     '''
-    Return a list of pol-mols which each contain a hydrogenated version of mol. We set max_replacements to 1 since only one double-bond is needed for ADMET.
+    Return a list of pol-mols which each contain a hydrogenated version of mol. We set max_replacements to 1 since only one double-bond is typically needed for ADMET and ROMP. BEWARE: setting max_replacements > 1 will result in considerable computational expense.
     '''
     
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
@@ -1235,53 +1235,93 @@ def func_chain_retro(lp,rxn='nitro_base'):
             mols.append( lp.SubChainMol(lp.mol,[lp.mol.GetAtomWithIdx(x) for x in keep_atoms]) )
         return mols
     
-
-def elim_RCO2H_retro(lp):
+def edit_RCO2H(em,pm,match_combo,L=None):
     '''
-    Reverse of RCO2H elimination which will occur after addition of heat
+    Should return a list of mols
     Source: Reynolds Class Notes, 9-24-20, p.3
     Test SMILES: *c1ccc(*)cc1
+    '''
+    o_inds = [em.AddAtom(Chem.AtomFromSmiles('O')) for _ in range(L)]
+    c_inds = [em.AddAtom(Chem.AtomFromSmiles('C')) for _ in range(L)]
+    dbl_o_inds = [em.AddAtom(Chem.AtomFromSmiles('O')) for _ in range(L)]
+    methyl_c_inds = [em.AddAtom(Chem.AtomFromSmiles('C')) for _ in range(L)]
+    for i in range(L):
+        em.AddBond(o_inds[i],match_combo[i][1],Chem.BondType.SINGLE)
+        em.AddBond(c_inds[i],o_inds[i],Chem.BondType.SINGLE)
+        em.AddBond(c_inds[i],dbl_o_inds[i],Chem.BondType.DOUBLE)
+        em.AddBond(c_inds[i],methyl_c_inds[i],Chem.BondType.SINGLE)    
+    em = pm_to_lp_em(em,pm)
+    new_mol = em.GetMol()
+    for x in match_combo:
+        new_mol.GetAtomWithIdx(x[1]).SetNumExplicitHs( pm.mol.GetAtomWithIdx(x[1]).GetNumImplicitHs() )
+        new_mol.GetAtomWithIdx(x[0]).SetNumExplicitHs( pm.mol.GetAtomWithIdx(x[0]).GetNumImplicitHs() + 1 )
+    return [new_mol]
+
+def edit_HCl(em,pm,match_combo,L=None):
+    '''
+    Should return a list of mols
+    Source: Reynolds Class Notes, 9-24-20, p.5
+    Test SMILES: '*/C(C#N)=C/C1C=CC(*)CC1'
+    '''
+    match_arr = np.array(match_combo)
+    new_mols = []
+    for i in range(2):
+        em = Chem.EditableMol(pm.mol)
+        cl_inds = [em.AddAtom(Chem.AtomFromSmiles('Cl')) for _ in range(L)]
+        c_inds = match_arr[:,i]
+        for i in range(L):
+            em.RemoveBond(match_combo[i][0],match_combo[i][1])
+            em.AddBond(match_combo[i][0],match_combo[i][1],Chem.BondType.SINGLE)
+            em.AddBond(int(c_inds[i]),cl_inds[i],Chem.BondType.SINGLE)
+        em = pm_to_lp_em(em,pm)
+        new_mols.append( em.GetMol() )
+    return new_mols
+
+elim_rxns = {
+    'RCO2H': {'replace_patt': '[c,C;R][c,C;R;!H0]', 'edit_fxn': edit_RCO2H},
+    'HCl': {'replace_patt': 'C=C', 'edit_fxn': edit_HCl},
+    }
+
+def pm_to_lp_em(em,pm):
+    '''
+    Add '*' for connection points at appropriate place of em
+    '''
+    star1 = em.AddAtom(Chem.AtomFromSmiles('*'))
+    star2 = em.AddAtom(Chem.AtomFromSmiles('*'))
+    em.RemoveBond(pm.connector_inds[0],pm.connector_inds[1])
+    em.AddBond(pm.connector_inds[0],star1,Chem.BondType.SINGLE)
+    em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
+    return em
+
+def elim_retro(lp, elim_group):
+    '''
+    Reverse of eliminations. They generally will occur after addition of heat.
     '''
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     pm = lp.PeriodicMol()
-    replace_patt = Chem.MolFromSmarts('[c,C;R][c,C;R;!H0]')
+    rxn_info = elim_rxns[elim_group]
+    replace_patt = Chem.MolFromSmarts(rxn_info['replace_patt'])
     matches = pm.GetSubstructMatches(replace_patt)
     mols = []
     if len(matches) == 0:
         return []
     for L in range(1, len(matches)+1):
         for match_combo in itertools.combinations(matches,L):
-            match_como_flat = ru.flatten_ll(match_combo)
-            if len(set(match_como_flat)) != len(match_como_flat): #no atoms should overlap
+            match_combo_flat = ru.flatten_ll(match_combo)
+            if len(set(match_combo_flat)) != len(match_combo_flat): #no atoms should overlap
                 pass
             else:
                 em = Chem.EditableMol(pm.mol)
-                o_inds = [em.AddAtom(Chem.AtomFromSmiles('O')) for _ in range(L)]
-                c_inds = [em.AddAtom(Chem.AtomFromSmiles('C')) for _ in range(L)]
-                dbl_o_inds = [em.AddAtom(Chem.AtomFromSmiles('O')) for _ in range(L)]
-                methyl_c_inds = [em.AddAtom(Chem.AtomFromSmiles('C')) for _ in range(L)]
-                for i in range(L):
-                    em.AddBond(o_inds[i],match_combo[i][1],Chem.BondType.SINGLE)
-                    em.AddBond(c_inds[i],o_inds[i],Chem.BondType.SINGLE)
-                    em.AddBond(c_inds[i],dbl_o_inds[i],Chem.BondType.DOUBLE)
-                    em.AddBond(c_inds[i],methyl_c_inds[i],Chem.BondType.SINGLE)
-                star1 = em.AddAtom(Chem.AtomFromSmiles('*'))
-                star2 = em.AddAtom(Chem.AtomFromSmiles('*'))
-                em.RemoveBond(pm.connector_inds[0],pm.connector_inds[1])
-                em.AddBond(pm.connector_inds[0],star1,Chem.BondType.SINGLE)
-                em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
-
-                new_mol = em.GetMol()
-                for x in match_combo:
-                    new_mol.GetAtomWithIdx(x[1]).SetNumExplicitHs( pm.mol.GetAtomWithIdx(x[1]).GetNumImplicitHs() )
-                    new_mol.GetAtomWithIdx(x[0]).SetNumExplicitHs( pm.mol.GetAtomWithIdx(x[0]).GetNumImplicitHs() + 1 )
-                try:
-                    Chem.SanitizeMol(new_mol)
-                    mols.append(new_mol)
-                except:
-                    pass
+                new_mols = rxn_info['edit_fxn'](em,pm,match_combo,L)
+                for new_mol in new_mols:
+                    try:
+                        Chem.SanitizeMol(new_mol)
+                        mols.append(new_mol)
+                    except:
+                        pass
     return mols
+
 def ring_close_retro(lp):
     '''
     Reverse of Ring-closing which will occur after addition of heat
@@ -1658,7 +1698,7 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
     return [ReactionStepList[i] for i in keep_inds] 
 
-post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_RCO2H_retro] #each return type should be ***list of mols*** or ***empty*** list
+post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_retro] #each return type should be ***list of mols*** or ***empty*** list
 
 def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False):
     '''

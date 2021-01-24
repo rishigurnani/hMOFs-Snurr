@@ -1132,3 +1132,22 @@ def pg_can(sm):
     Return the polymer genome canonicalized version of the SMILES string, sm
     '''
     return sm.replace('*','[*]')
+
+def is_soluble(pol):
+    '''
+    Return whether or not the polymer, pol, is soluble
+    False: if all atoms in repeat unit belong to at least one ring
+    True: Else
+    '''
+    if type(pol) == str or type(pol) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        pol = LinearPol(pol)
+    n_connectors = len(pol.connector_inds)
+    try:
+        non_ring = set(flatten_ll(pol.mol.GetSubstructMatches(Chem.MolFromSmarts('[R0]'))))
+    except:
+        Chem.GetSSSR(pol.mol)
+        non_ring = set(flatten_ll(pol.mol.GetSubstructMatches(Chem.MolFromSmarts('[R0]'))))
+    if len(non_ring) == n_connectors:
+        return False
+    else:
+        return True
