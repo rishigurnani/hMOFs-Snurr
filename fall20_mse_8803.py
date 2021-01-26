@@ -1315,26 +1315,33 @@ def pm_to_lp_em(em,pm):
     em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
     return em
 
-def elim_retro(lp, elim_group):
+def elim_retro(lp, elim_group, max_sites=2, max_matches=40):
     '''
     Reverse of eliminations. They generally will occur after addition of heat.
     '''
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     pm = lp.PeriodicMol()
+    if pm is None:
+        return []
+
     rxn_info = elim_rxns[elim_group]
     replace_patt = Chem.MolFromSmarts(rxn_info['replace_patt'])
     matches = pm.GetSubstructMatches(replace_patt)
     mols = []
     if len(matches) == 0:
         return []
-    for L in range(1, len(matches)+1):
+    max_sites = min(len(matches),max_sites)
+    for L in range(1, max_sites+1):
         for match_combo in itertools.combinations(matches,L):
             match_combo_flat = ru.flatten_ll(match_combo)
-            if len(set(match_combo_flat)) != len(match_combo_flat): #no atoms should overlap
+            if len(mols) == max_matches: #limit the number of combinations that are tried
+                pass
+            elif len(set(match_combo_flat)) != len(match_combo_flat): #no atoms should overlap
                 pass
             else:
                 em = Chem.EditableMol(pm.mol)
+                #print('elim_group:',elim_group)
                 new_mols = rxn_info['edit_fxn'](em,pm,match_combo,L)
                 for new_mol in new_mols:
                     try:
@@ -1372,8 +1379,12 @@ def ring_close_retro(lp):
             atom_aromaticity = {a:0 for a in ar_atom_idx}
 
             for ring in ar:
-                if ring[0] in ar_atom_idx:
-                    for a in ring:
+                ar_ring = 1
+                for a in ring:
+                    if a not in atom_aromaticity.keys():
+                        ar_ring = 0
+                if ar_ring == 1:
+                    for a in ring:   
                         atom_aromaticity[a] += 1
 
         all_matches = pm.mol.GetSubstructMatches(start_match)
@@ -1739,7 +1750,7 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
 
 post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_retro] #each return type should be ***list of mols*** or ***empty*** list
 
-def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False,debug=False):
+def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False, hydrogenate_chain=True,debug=False):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
@@ -1758,11 +1769,17 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
             print('#######')
             print(sm)
         if chain_reactions:
-            for rxn in post_polymerization_rxns:
+            exclude_rxns = []
+            if not hydrogenate_chain:
+                exclude_rxns.append('hydrogenate_chain')
+                if debug:
+                    print('Exlude rxns:', exclude_rxns)
+            for rxn in [rxn for rxn in post_polymerization_rxns if not ru.checkSubstrings(exclude_rxns,str(rxn))]:
                 if debug:
                     print(str(rxn))
                 inner_RxnPaths = []
                 for RxnPath in sm_RxnPaths:
+                    print()
                     i = 1
                     if RxnPath.reaction_step_ls == []:
                         if i == 1:
@@ -1774,8 +1791,16 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
                         curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
                     if 'elim_retro' in str(rxn):
                         RxnSteps = []
+                        # if debug:
+                        #     print('n elim rxns:', len(elim_rxns.keys()))
                         for elim_group in elim_rxns.keys():
-                           RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
+                            if debug:
+                                print('elim_group:',elim_group)
+                            try:
+                                RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
+                            except:
+                                print(Chem.MolToSmiles(curr_mol))
+                                raise ValueError
                     elif 'func_chain' in str(rxn):
                         RxnSteps = []
                         for k in func_chain_rxns.keys():

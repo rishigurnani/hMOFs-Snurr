@@ -627,12 +627,12 @@ class LinearPol(Chem.rdchem.Mol):
             self.mol = Chem.MolFromSmiles(mol)
             self.SMILES = mol
         else:
-            self.mol = mol
+            self.mol = Chem.MolFromSmiles(Chem.MolToSmiles(mol)) #ensures that star_inds computation is not messed up
             if SMILES == None:
                 self.SMILES = Chem.MolToSmiles(self.mol)
             else:
                 self.SMILES = SMILES
-        self.star_inds = get_star_inds(self.mol) #these are always sorted from smallest index to largest index
+        self.star_inds = get_star_inds(mol) #these are always sorted from smallest index to largest index
         self.connector_inds = self.get_connector_inds() #these are always sorted from smallest index to largest index
         #self.main_chain_atoms, self.side_chain_atoms = self.get_main_chain()
         self.main_chain_atoms, self.side_chain_atoms = None,None
@@ -682,7 +682,7 @@ class LinearPol(Chem.rdchem.Mol):
             em.RemoveAtom(self.star_inds[0])
             return PeriodicMol( em.GetMol(),self.star_inds,self.connector_inds )
         except:
-            print('!!!Periodization of %s Failed!!!' %self.SMILES)
+            #print('!!!Periodization of %s Failed!!!' %self.SMILES)
             if repeat_unit_on_fail == False:
                 return None
             else:
