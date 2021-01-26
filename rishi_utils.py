@@ -627,7 +627,8 @@ class LinearPol(Chem.rdchem.Mol):
             self.mol = Chem.MolFromSmiles(mol)
             self.SMILES = mol
         else:
-            self.mol = Chem.MolFromSmiles(Chem.MolToSmiles(mol)) #ensures that star_inds computation is not messed up
+            #self.mol = Chem.MolFromSmiles(Chem.MolToSmiles(mol)) #ensures that star_inds computation is not messed up
+            self.mol = mol
             if SMILES == None:
                 self.SMILES = Chem.MolToSmiles(self.mol)
             else:

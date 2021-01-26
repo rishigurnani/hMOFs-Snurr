@@ -1172,7 +1172,11 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info,debug=False):
         match_pairs = list(itertools.combinations(matches, 2))
     new_mols = []
     for match_pair in match_pairs:
-        new_mols_info = edit_function(pm,match_pair)
+        try:
+            new_mols_info = edit_function(pm,match_pair)
+        except:
+            print('sg_failed for %s' %lp.SMILES)
+            return None
         if new_mols_info is not []:
             for new_mol_info in new_mols_info:
                 new_mol = new_mol_info[0]
@@ -1315,7 +1319,7 @@ def pm_to_lp_em(em,pm):
     em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
     return em
 
-def elim_retro(lp, elim_group, max_sites=2, max_matches=40):
+def elim_retro(lp, elim_group, max_sites=2, max_matches=10):
     '''
     Reverse of eliminations. They generally will occur after addition of heat.
     '''
@@ -1342,7 +1346,10 @@ def elim_retro(lp, elim_group, max_sites=2, max_matches=40):
             else:
                 em = Chem.EditableMol(pm.mol)
                 #print('elim_group:',elim_group)
-                new_mols = rxn_info['edit_fxn'](em,pm,match_combo,L)
+                try:
+                    new_mols = rxn_info['edit_fxn'](em,pm,match_combo,L)
+                except:
+                    new_mols = []
                 for new_mol in new_mols:
                     try:
                         Chem.SanitizeMol(new_mol)
@@ -1636,6 +1643,8 @@ class ReactionPath:
                     pass
     
     def DrawSteps(self,size=(6, 4)):
+        if self.lp is None:
+            self.GetLP()
         if self.lp_syn_score is None:
             title_add = ''
         else:
