@@ -8,6 +8,7 @@ import sys
 import matplotlib.pyplot as plt
 sys.path.append('/data/rgur/retrosynthesis/scscore')
 import re
+from joblib import Parallel, delayed
 
 ### set up scscore ###
 from scscore import standalone_model_numpy as sc
@@ -1193,9 +1194,12 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info,debug=False):
         return new_mols
     #return new_mols_info
 
-func_chain_rxns = {'nitro_base':Chem.MolFromSmarts('n[*R0]')}
+func_chain_rxns = {
+    'nitro_base':Chem.MolFromSmarts('n[*R0]'),
+    'SO2_oxidation':Chem.MolFromSmarts('S(=O)(=O)')
+    }
 
-def func_chain_retro(lp,rxn='nitro_base'):
+def func_chain_retro(lp,rxn):
     '''
     Functions to retrosynthetically functionalize chains
     '''
@@ -1206,9 +1210,10 @@ def func_chain_retro(lp,rxn='nitro_base'):
     # if rxn != 'nitro_base':
     #     r_mol = r_mol.PeriodicMol()
     replace_group = func_chain_rxns[rxn]
-    sc_matches = lp.SideChainMol().GetSubstructMatches(replace_group)
-    if len(sc_matches) != 0:
-        return []
+    if rxn == 'nitro_base':
+        sc_matches = lp.SideChainMol().GetSubstructMatches(replace_group)
+        if len(sc_matches) != 0:
+            return []
     matches=lp.mol.GetSubstructMatches(replace_group)
     if len(matches) == 0:
         return []
@@ -1216,24 +1221,41 @@ def func_chain_retro(lp,rxn='nitro_base'):
     if lp.star_inds[0] in flat_matches or lp.star_inds[1] in flat_matches: #make sure the connector inds aren't being matched
         return []
     else:
-        print('nitro_base_match')
-        frag_mol=Chem.FragmentOnBonds(lp.mol,[lp.mol.GetBondBetweenAtoms(i,j).GetIdx() for i,j in matches])
-        frag_mols = Chem.GetMolFrags(frag_mol)[1:]
-        frag_ls = Chem.MolToSmiles(ru.mol_without_atom_index(frag_mol)).split('.')[1:]
-        frag_ls = [re.sub('\[[0-9]+\*\]','*',s) for s in frag_ls]
-        unique_frags = {}#SMILES - list of atom matches
-        for i,s in enumerate(frag_ls):
-            if s not in unique_frags:
-                unique_frags[s] = list(frag_mols[i])
-            else:
-                unique_frags[s].extend(frag_mols[i])
         mols = []
-        #for L in range( 1,len(unique_frags.keys())+1 ):
-        for combo_matches in unique_frags.values():
-            all_atoms = set(range(lp.mol.GetNumAtoms()))
-            keep_atoms = all_atoms.difference(combo_matches)
-            mols.append( lp.SubChainMol(lp.mol,[lp.mol.GetAtomWithIdx(x) for x in keep_atoms]) )
-        return mols
+        if rxn == 'nitro_base': #this branch is for reactions where arbitrary groups must be removed
+            frag_mol=Chem.FragmentOnBonds(lp.mol,[lp.mol.GetBondBetweenAtoms(i,j).GetIdx() for i,j in matches])
+            frag_mols = Chem.GetMolFrags(frag_mol)[1:]
+            frag_ls = Chem.MolToSmiles(ru.mol_without_atom_index(frag_mol)).split('.')[1:]
+            frag_ls = [re.sub('\[[0-9]+\*\]','*',s) for s in frag_ls]
+            unique_frags = {}#SMILES - list of atom matches
+            for i,s in enumerate(frag_ls):
+                if s not in unique_frags:
+                    unique_frags[s] = list(frag_mols[i])
+                else:
+                    unique_frags[s].extend(frag_mols[i])
+            #for L in range( 1,len(unique_frags.keys())+1 ):
+            for combo_matches in unique_frags.values():
+                all_atoms = set(range(lp.mol.GetNumAtoms()))
+                keep_atoms = all_atoms.difference(combo_matches)
+                mols.append( lp.SubChainMol(lp.mol,[lp.mol.GetAtomWithIdx(x) for x in keep_atoms]) )
+        else:
+            n_matches = len(matches)
+            for L in range(1,n_matches+1):
+                for match_combo in itertools.combinations(matches,L):
+                    o_inds = []
+                    for match in match_combo:
+                        o_inds.append(match[1])
+                        o_inds.append(match[2])
+                    o_inds = sorted(o_inds,reverse=True)
+                    em = Chem.EditableMol(lp.mol)
+                    [em.RemoveAtom(x) for x in o_inds]
+                    new_mol = em.GetMol()
+                    try:
+                        Chem.SanitizeMol(new_mol)
+                        mols.append(new_mol)
+                    except:
+                        pass
+    return mols
     
 def edit_RCO2H(em,pm,match_combo,L=None):
     '''
@@ -1569,16 +1591,12 @@ def search_polymer(lp,polymer_set):
     
 
 class ReactionPath:
-    def __init__(self, reaction_step_ls, lp=None):
+    def __init__(self, reaction_step_ls):
         self.reaction_step_ls = reaction_step_ls
-        if lp is None:
-            self.lp = ru.LinearPol(reaction_step_ls[-1].product_mol) #is a polymer
-        else:
-            self.lp = lp
-        self.lp_smiles = self.lp.SMILES
         self.lp_syn_score = None
         self.can_smiles = None
         self.lp_exists = None
+        self.lp = None
         self.doi = None
         #below is a patch job that will need to changed when multi-step reactions occur
         self.catalog = None
@@ -1587,7 +1605,13 @@ class ReactionPath:
         self.r_mols = None
         self.depolymerization_step = None
     
+    def GetLP(self): #must make a separate function for this to avoid pickling issues
+        self.lp = ru.LinearPol(self.reaction_step_ls[-1].product_mol) #is a polymer
+        self.lp_smiles = self.lp.SMILES
+
     def SearchPolymer(self,pol_dict):
+        if self.lp is None:
+            self.GetLP()
         for n in range(4):
             if self.lp_exists:
                 break
@@ -1715,58 +1739,86 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
 
 post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_retro] #each return type should be ***list of mols*** or ***empty*** list
 
-def retrosynthesize(smiles_ls,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False):
+def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False,debug=False):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
     if type(smiles_ls) == 'str': #handle case of one string passed in
         smiles_ls = [smiles_ls]
 
-    all_RxnPaths = []
-    for sm in smiles_ls:
+    def helper(sm):
         mol = Chem.MolFromSmiles(sm)
         lp = ru.LinearPol(mol)
-        sm_RxnPaths = [ReactionPath([],lp=lp)]
+        sm_RxnPaths = [ReactionPath([])]
         if dimerize:
             lp2 = lp.multiply(2)
             Chem.GetSSSR(lp2.mol)
-            sm_RxnPaths += [ReactionPath([],lp=lp2)]
-        print('#######')
-        print(sm)
+            sm_RxnPaths += [ReactionPath([])]
+        if debug:
+            print('#######')
+            print(sm)
         if chain_reactions:
             for rxn in post_polymerization_rxns:
-                print(str(rxn))
+                if debug:
+                    print(str(rxn))
                 inner_RxnPaths = []
                 for RxnPath in sm_RxnPaths:
+                    i = 1
                     if RxnPath.reaction_step_ls == []:
-                        curr_mol = RxnPath.lp.mol #the mol to depolymerize
+                        if i == 1:
+                            curr_mol = lp.mol #the mol to depolymerize
+                            i += 1
+                        elif i == 2 and dimerize:
+                            curr_mol = lp2.mol
                     else:
                         curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
                     if 'elim_retro' in str(rxn):
                         RxnSteps = []
                         for elim_group in elim_rxns.keys():
                            RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
+                    elif 'func_chain' in str(rxn):
+                        RxnSteps = []
+                        for k in func_chain_rxns.keys():
+                           RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol,rxn=k)] )                        
                     else:
                         RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol)]
                     #print('RxnSteps len:', len(RxnSteps))
                     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
                     #print('Unique RxnSteps len:',len(keep_inds))
                     unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
-                    inner_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in unique_RxnSteps] )
+                    inner_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x]) for x in unique_RxnSteps] )
                 sm_RxnPaths = sm_RxnPaths + inner_RxnPaths #update sm_RxnPaths
-                print('inner_RxnPaths len:', len(inner_RxnPaths))
-            print('sm_RxnPaths len:', len(sm_RxnPaths))
+                if debug:
+                    print('inner_RxnPaths len:', len(inner_RxnPaths))
+            if debug:
+                print('sm_RxnPaths len:', len(sm_RxnPaths))
         
+        final_rxn_paths = []
         for RxnPath in sm_RxnPaths:
-            try:
+            i = 1
+            if RxnPath.reaction_step_ls == []:
+                if i == 1:
+                    curr_mol = lp.mol #the mol to depolymerize
+                    i += 1
+                elif i == 2 and dimerize:
+                    curr_mol = lp2.mol
+            else:
                 curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol #the mol to depolymerize
-            except: 
-                curr_mol = RxnPath.lp.mol
             try:
-                DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro) 
+                DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro)
+                final_rxn_paths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x]) for x in DepolymerizationSteps] )
             except:
-                return RxnPath
-            #print(DepolymerizationSteps)
-            all_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x],lp=lp) for x in DepolymerizationSteps] )
+                print(sm)
+                raise ValueError
+        return final_rxn_paths
 
+
+    if n_core == 1:
+        all_RxnPaths = []
+        for sm in smiles_ls:
+            RxnPaths = helper(sm)
+            all_RxnPaths.extend( RxnPaths )
+    else:
+        all_RxnPaths_ll = Parallel(n_jobs=n_core)(delayed(helper)(sm) for sm in smiles_ls)
+        all_RxnPaths = ru.flatten_ll(all_RxnPaths_ll)
     return all_RxnPaths
