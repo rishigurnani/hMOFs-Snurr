@@ -151,7 +151,7 @@ def ox_depolymerize(mol):
 
     if mol.HasSubstructMatch( Chem.MolFromSmarts('[#0][R]') ): #Most mol will fail. Necessary but not sufficient condition. Added for efficiency purposes
         lp = ru.LinearPol(mol)
-        pi_bonds = set([b.GetIdx() for b in mol.GetBonds() if b.GetBondTypeAsDouble() > 1])
+        pi_bonds = set([b.GetIdx() for b in mol.GetBonds() if b.GetBondTypeAsDouble() > 1 and b.GetBeginAtom().GetSymbol() != 'O' and b.GetEndAtom().GetSymbol() != 'O'])
         c1_bonds = [b.GetIdx() for b in lp.mol.GetAtoms()[max(lp.connector_inds)].GetBonds()] #bonds of connector 1
         c2_bonds = [b.GetIdx() for b in lp.mol.GetAtoms()[min(lp.connector_inds)].GetBonds()] #bonds of connector 2    
         if not any([b in pi_bonds for b in c1_bonds]) or not any([b in pi_bonds for b in c2_bonds]): #if connectors don't have pi bonds return None
@@ -1215,7 +1215,10 @@ def func_chain_retro(lp,rxn):
     #     r_mol = r_mol.PeriodicMol()
     replace_group = func_chain_rxns[rxn]
     if rxn == 'nitro_base':
-        sc_matches = lp.SideChainMol().GetSubstructMatches(replace_group)
+        sc = lp.SideChainMol()
+        if sc is None:
+            return []
+        sc_matches = sc.GetSubstructMatches(replace_group)
         if len(sc_matches) != 0:
             return []
     matches=lp.mol.GetSubstructMatches(replace_group)
@@ -1319,7 +1322,7 @@ def pm_to_lp_em(em,pm):
     em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
     return em
 
-def elim_retro(lp, elim_group, max_sites=2, max_matches=10):
+def elim_retro(lp, elim_group, max_sites=2, max_matches=30):
     '''
     Reverse of eliminations. They generally will occur after addition of heat.
     '''
@@ -1432,7 +1435,10 @@ def ring_close_retro(lp):
 
                     med_mol = em.GetMol()
                     if fix_aromaticity:
-                        i_n_aromaticity = atom_aromaticity[ lp_to_pm_ind(i_n) ]
+                        try:
+                            i_n_aromaticity = atom_aromaticity[ lp_to_pm_ind(i_n) ]
+                        except:
+                            i_n_aromaticity = 0
                         for i in ring_atoms:
                             if atom_aromaticity[ i ] == i_n_aromaticity: #if an atom was part of same number of aromatic rings as the N atom, it shouldn't be aromatic
                                 #print('Ring atom lp:',i)
@@ -1624,7 +1630,7 @@ class ReactionPath:
         self.depolymerization_step = None
     
     def GetLP(self): #must make a separate function for this to avoid pickling issues
-        self.lp = ru.LinearPol(self.reaction_step_ls[-1].product_mol) #is a polymer
+        self.lp = ru.LinearPol(self.reaction_step_ls[0].product_mol) #is a polymer
         self.lp_smiles = self.lp.SMILES
 
     def SearchPolymer(self,pol_dict):
@@ -1799,17 +1805,18 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
                     else:
                         curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
                     if 'elim_retro' in str(rxn):
-                        RxnSteps = []
-                        # if debug:
-                        #     print('n elim rxns:', len(elim_rxns.keys()))
-                        for elim_group in elim_rxns.keys():
-                            if debug:
-                                print('elim_group:',elim_group)
-                            try:
-                                RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
-                            except:
-                                print(Chem.MolToSmiles(curr_mol))
-                                raise ValueError
+                        if not ru.is_soluble(curr_mol):
+                            RxnSteps = []
+                            # if debug:
+                            #     print('n elim rxns:', len(elim_rxns.keys()))
+                            for elim_group in elim_rxns.keys():
+                                if debug:
+                                    print('elim_group:',elim_group)
+                                try:
+                                    RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
+                                except:
+                                    if debug:
+                                        return curr_mol
                     elif 'func_chain' in str(rxn):
                         RxnSteps = []
                         for k in func_chain_rxns.keys():
@@ -1843,7 +1850,10 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
                 final_rxn_paths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x]) for x in DepolymerizationSteps] )
             except:
                 print(sm)
-                raise ValueError
+                if debug:
+                    raise ValueError
+                else:
+                    pass
         return final_rxn_paths
 
 
@@ -1851,7 +1861,10 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
         all_RxnPaths = []
         for sm in smiles_ls:
             RxnPaths = helper(sm)
-            all_RxnPaths.extend( RxnPaths )
+            if type(RxnPaths) == Chem.rdchem.Mol: #this line to help with debugging code
+                return RxnPaths
+            else:
+                all_RxnPaths.extend( RxnPaths )
     else:
         all_RxnPaths_ll = Parallel(n_jobs=n_core)(delayed(helper)(sm) for sm in smiles_ls)
         all_RxnPaths = ru.flatten_ll(all_RxnPaths_ll)
