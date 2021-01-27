@@ -340,3 +340,5 @@ def ring_close_retro(lp,pm=None):
         return mols
     else:
         return []
+
+post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_retro] #each return type should be ***list of mols*** or ***empty*** list

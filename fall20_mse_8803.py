@@ -362,8 +362,6 @@ def retro_depolymerize(lp,pm=None,radion=True,sg=True,ox=True,ro=True,debug=Fals
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
     return [ReactionStepList[i] for i in keep_inds] 
 
-post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_retro] #each return type should be ***list of mols*** or ***empty*** list
-
 def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False, hydrogenate_chain=True,debug=False,greedy=True):
     '''
     Input a list of smiles and return the synthesis pathways

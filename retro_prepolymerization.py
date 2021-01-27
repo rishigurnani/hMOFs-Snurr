@@ -60,7 +60,7 @@ def frp_depolymerize(lp,sc=None,strict=True):
 
         if len(mc_match1) > 0:
             if strict:
-                if lp.mol.GetAtoms()[mc_match1[1]].GetNumImplicitHs() < 1: #cieling temperature AND ring consideration
+                if lp.mol.GetAtoms()[mc_match1[1]].GetNumImplicitHs() < 1: #ceiling temperature AND ring consideration
                     return None
             
             em = Chem.EditableMol(lp.mol)
