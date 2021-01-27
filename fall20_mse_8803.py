@@ -27,12 +27,12 @@ def frp_possible(mol):
     
     return mol.HasSubstructMatch(main_chain_patt) & ( not mol.HasSubstructMatch(side_chain_patt) )
 
-def frp_depolymerize(mol,strict=True):
+def frp_depolymerize(lp,sc=None,strict=True):
     '''
     Determine if this polymer, mol (either SMILES string or rdkit mol object), is a candidate for free-radical polymerization. If 'strict' is True, then some heuristics will be enforced based on the suggestions of Dr. Sotzing.
     '''
-    if type(mol) == str:
-        mol = Chem.MolFromSmiles(mol)
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        lp = ru.LinearPol(lp)
         
     #main_chain_patt1 = Chem.MolFromSmarts('[#0]C[CH2][#0]') #ensure at least one carbon is unsubstituted
     #main_chain_patt2 = Chem.MolFromSmarts('[#0]C=[CH][#0]') #ensure at least one carbon is unsubstituted
@@ -51,18 +51,17 @@ def frp_depolymerize(mol,strict=True):
     side_chain_patt4 = Chem.MolFromSmarts('[CR]=[CR][CR]=[CR]')
     side_chain_patt5 = Chem.MolFromSmarts('[c]')
 
-    sc_mol = ru.LinearPol(mol).SideChainMol()
-    if sc_mol is not None:
-        sc_matches = sc_mol.HasSubstructMatch(side_chain_patt1) or sc_mol.HasSubstructMatch(side_chain_patt2) or mol.HasSubstructMatch(side_chain_patt3) or sc_mol.HasSubstructMatch(side_chain_patt4) or sc_mol.HasSubstructMatch(side_chain_patt5)
+    if sc is None:
+        sc = lp.SideChainMol()
+    if sc is not None:
+        sc_matches = sc.HasSubstructMatch(side_chain_patt1) or sc.HasSubstructMatch(side_chain_patt2) or sc.HasSubstructMatch(side_chain_patt3) or sc.HasSubstructMatch(side_chain_patt4) or sc.HasSubstructMatch(side_chain_patt5)
     else:
         sc_matches = False #if there is no side-chain mol then there can't be any matches
     
     if not sc_matches:
-        lp = ru.LinearPol(mol)
-        
-        mc_match1 = mol.GetSubstructMatch(main_chain_patt1)
-        mc_match2 = mol.HasSubstructMatch(main_chain_patt2)
-        mc_match3 = mol.GetSubstructMatches(main_chain_patt3)
+        mc_match1 = lp.mol.GetSubstructMatch(main_chain_patt1)
+        mc_match2 = lp.mol.HasSubstructMatch(main_chain_patt2)
+        mc_match3 = lp.mol.GetSubstructMatches(main_chain_patt3)
         
         if len(mc_match3) == 1:
             rxn = Chem.AllChem.ReactionFromSmarts('[*:1][CR:3]([#0:2])[CHR:4]=[CHR:5][CR:6]([#0:7])[*:9]>>[*:1][CR:3]=[CR:4][CR:5]=[CR:6][*:9]')
@@ -78,10 +77,10 @@ def frp_depolymerize(mol,strict=True):
 
         if len(mc_match1) > 0:
             if strict:
-                if mol.GetAtoms()[mc_match1[1]].GetNumImplicitHs() < 1: #cieling temperature AND ring consideration
+                if lp.mol.GetAtoms()[mc_match1[1]].GetNumImplicitHs() < 1: #cieling temperature AND ring consideration
                     return None
             
-            em = Chem.EditableMol(mol)
+            em = Chem.EditableMol(lp.mol)
             em.RemoveBond(lp.connector_inds[0],lp.connector_inds[1])
             em.AddBond(lp.connector_inds[0],lp.connector_inds[1],Chem.BondType.DOUBLE) #replace single bond w/ double
             em.RemoveAtom(lp.star_inds[1])
@@ -110,7 +109,7 @@ def frp_depolymerize(mol,strict=True):
             except:
                 return None
         elif mc_match2:
-            em = Chem.EditableMol(mol)
+            em = Chem.EditableMol(lp.mol)
             em.RemoveBond(lp.connector_inds[0],lp.connector_inds[1])
             em.AddBond(lp.connector_inds[0],lp.connector_inds[1],Chem.BondType.TRIPLE) #replace double bond w/ triple
         
@@ -142,21 +141,20 @@ def frp_depolymerize(mol,strict=True):
     else:
         return None
 
-def ox_depolymerize(mol):
+def ox_depolymerize(lp):
     '''
     Retrosynthesis of an oxidative depolymerization reaction
     '''
-    if type(mol) == str:
-        mol = Chem.MolFromSmiles(mol)
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        lp = ru.LinearPol(lp)
 
-    if mol.HasSubstructMatch( Chem.MolFromSmarts('[#0][R]') ): #Most mol will fail. Necessary but not sufficient condition. Added for efficiency purposes
-        lp = ru.LinearPol(mol)
-        pi_bonds = set([b.GetIdx() for b in mol.GetBonds() if b.GetBondTypeAsDouble() > 1 and b.GetBeginAtom().GetSymbol() != 'O' and b.GetEndAtom().GetSymbol() != 'O'])
+    if lp.mol.HasSubstructMatch( Chem.MolFromSmarts('[#0][R]') ): #Most mol will fail. Necessary but not sufficient condition. Added for efficiency purposes
+        pi_bonds = set([b.GetIdx() for b in lp.mol.GetBonds() if b.GetBondTypeAsDouble() > 1 and b.GetBeginAtom().GetSymbol() != 'O' and b.GetEndAtom().GetSymbol() != 'O'])
         c1_bonds = [b.GetIdx() for b in lp.mol.GetAtoms()[max(lp.connector_inds)].GetBonds()] #bonds of connector 1
         c2_bonds = [b.GetIdx() for b in lp.mol.GetAtoms()[min(lp.connector_inds)].GetBonds()] #bonds of connector 2    
         if not any([b in pi_bonds for b in c1_bonds]) or not any([b in pi_bonds for b in c2_bonds]): #if connectors don't have pi bonds return None
             return None
-        ri = mol.GetRingInfo()
+        ri = lp.mol.GetRingInfo()
         try:
             c1_ring = [ring for ring in ri.BondRings() if len(set(ring).intersection(c1_bonds)) > 0][0]
             c2_ring = [ring for ring in ri.BondRings() if len(set(ring).intersection(c2_bonds)) > 0][0]
@@ -259,32 +257,6 @@ def dap_depolymerize(mol):
     else:
         return None
 
-def hclify(mol):
-    '''
-    Return a list of mols which each contain a version of mol but with ONE HCl added. HCl can be removed with heat. Might want to add version where multiple HCl are added.
-    '''
-    if type(mol) == str:
-        mol = Chem.MolFromSmiles(mol)
-    
-    new = []
-    patt = Chem.MolFromSmarts('[CH2,CH1]=C')
-    matches=mol.GetSubstructMatches(patt)
-    for match in matches:
-        for c_func_ind in [0,1]:
-            em = Chem.EditableMol(mol)
-
-            Cl=em.AddAtom(Chem.AtomFromSmiles('Cl'))
-
-            em.RemoveBond(match[0],match[1])
-            em.AddBond(match[0],match[1],Chem.BondType.SINGLE)
-            em.AddBond(match[c_func_ind],Cl,Chem.BondType.SINGLE)
-            try:
-                Chem.SanitizeMol(em.GetMol())
-                new.append(em.GetMol())
-            except:
-                pass
-    return new
-
 def hydrogenate_chain(lp,max_replacements=1):
     '''
     Return a list of pol-mols which each contain a hydrogenated version of mol. We set max_replacements to 1 since only one double-bond is typically needed for ADMET and ROMP. BEWARE: setting max_replacements > 1 will result in considerable computational expense.
@@ -340,64 +312,6 @@ def admet_depolymerize(lp):
                 return em.GetMol()
             except:
                 return None
-            
-def ro_depolymerize2(lp):
-    '''
-    Return (polymer,monomer) if ring-opening polymerization is possible
-    '''
-    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
-        lp = ru.LinearPol(lp)
-    
-    patt1=Chem.MolFromSmiles('CNC(=O)')
-    patt2=Chem.MolFromSmiles('COC(=O)')
-    patt3=Chem.MolFromSmiles('COC')
-    patt4=Chem.MolFromSmiles('CNC')
-    patt5=Chem.MolFromSmiles('COC=N')
-    patt_oh=Chem.MolFromSmarts('[OX2H]')
-    try:
-        #print('here1')
-        pm = lp.PeriodicMol()
-        #print('herea')
-        am = lp.AlphaMol().PeriodicMol()
-        #print('hereb')
-        mcm = lp.MainChainMol().PeriodicMol()
-        #print('herec')
-        alpha_match_len = (len(am.GetSubstructMatches(patt1)),len(am.GetSubstructMatches(patt2)),
-                          len(mcm.GetSubstructMatches(patt3)),
-                          len(mcm.GetSubstructMatches(patt4)),
-                          len(mcm.GetSubstructMatches(patt5)),
-                          len(am.GetSubstructMatches(patt5))) #exo-imino
-        #print('hered')
-        if alpha_match_len[0] == 1 or alpha_match_len[1] == 1 or alpha_match_len[4] == 1 or alpha_match_len[5] == 1:
-            #print('here2')
-            alpha_match_len = list(alpha_match_len)
-            alpha_match_len[2] = 0 #if we have an ester third group should be removed
-            alpha_match_len[3] = 0
-            alpha_match_len = tuple(alpha_match_len)
-        if alpha_match_len[4] == 1:
-            alpha_match_len[5] == 0 #endo-inimo overshadows exo-imino
-        argmax = np.argmax(alpha_match_len)
-        if sorted(alpha_match_len) == [0, 0, 0, 0, 0, 1]: #make sure groups exist on alpha_chain
-            #print('here3')
-            lactone = len(pm.GetSubstructMatches(patt2))
-            cyc_ether = len(pm.GetSubstructMatches(patt3))
-            endo_imino_cyc_ether = len(pm.GetSubstructMatches(patt5))
-            if pm.HasSubstructMatch(patt_oh) == True: 
-                #print('here4')
-                lactone = 0 #OH for lactone is no good
-                cyc_ether = 0 #OH for cyclic ether is no good
-                endo_imino_cyc_ether = 0 #OH for endo_imino_cyc_ether is no good
-            tot_match_len = (len(pm.GetSubstructMatches(patt1)),lactone,cyc_ether,
-                            len(pm.GetSubstructMatches(patt4)),endo_imino_cyc_ether,endo_imino_cyc_ether)
-            if tot_match_len[argmax] == alpha_match_len[argmax]: #make sure no groups are on side chains
-                #print('here5')
-                return [pm]
-            else:
-                return None
-        else:
-            return None
-    except:
-        return None   
 
 
 ro_linkages = {
@@ -409,7 +323,7 @@ ro_linkages = {
     'cyclic_sulfide':Chem.MolFromSmarts('[CR][SR]')
 }
 
-def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
+def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
     '''
     Return (polymer,monomer) if ring-opening polymerization is possible. selectivity = True means a selectivity check will occur. selectivity appears to be violated in 10.1002/pola.10090, p.194, Scheme 2, 5 so default is to not check for selectivity at the moment.
     lactam test SMILES: [*]C(NC(=O)C)CCC(=O)N[*]
@@ -431,8 +345,10 @@ def ro_depolymerize(lp, ro_linkage_key, selectivity=False):
             if lp.mol.HasSubstructMatch(oh_mol):
                 return None
         
-        pm = lp.PeriodicMol()
-        pm.GetSSSR()
+        if pm is None:
+            pm = lp.PeriodicMol()
+            if pm is not None:
+                pm.GetSSSR()
         pm_matches = pm.GetSubstructMatches(linkage)
         ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
         if max([len(r) for r in ar]) > 9: #don't allow large rings
@@ -1132,16 +1048,16 @@ sg_rxns = { #SMARTS of polymer linkage: [(g1,g2,edit_function),(g3,g4,edit_funct
 }
 
 
-def sg_depolymerize(mol,polymer_linkage,rxn_info,debug=False):
+def sg_depolymerize(lp,polymer_linkage,rxn_info,pm=None,debug=False,greedy=True):
     '''
     Return the monomers (one w/ fxnl group g1 and the other w/ g2) that could undergo a step-growth polymerization to form mol. For now only works when input mol has only one repeat unit. Using Chris's code may help this.
     '''
     g1,g2,edit_function=rxn_info[0],rxn_info[1],rxn_info[2]
-    if type(mol) == str:
-        mol = Chem.MolFromSmiles(mol)
+    if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
+        lp = ru.LinearPol(lp)
 
-    lp = ru.LinearPol(mol)
-    pm = lp.PeriodicMol()
+    if pm is None:
+        pm = lp.PeriodicMol()
     if pm is None: #periodization failed
         if debug:
             print('None1')
@@ -1175,8 +1091,11 @@ def sg_depolymerize(mol,polymer_linkage,rxn_info,debug=False):
         try:
             new_mols_info = edit_function(pm,match_pair)
         except:
-            print('sg_failed for %s' %lp.SMILES)
-            return None
+            if greedy:
+                new_mols_info = []
+            else:
+                print('sg_failed for %s' %lp.SMILES)
+                return None
         if new_mols_info is not []:
             for new_mol_info in new_mols_info:
                 new_mol = new_mol_info[0]
@@ -1322,13 +1241,14 @@ def pm_to_lp_em(em,pm):
     em.AddBond(pm.connector_inds[1],star2,Chem.BondType.SINGLE)
     return em
 
-def elim_retro(lp, elim_group, max_sites=2, max_matches=30):
+def elim_retro(lp, elim_group, pm=None, max_sites=2, max_matches=30):
     '''
     Reverse of eliminations. They generally will occur after addition of heat.
     '''
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
-    pm = lp.PeriodicMol()
+    if pm is None:
+        pm = lp.PeriodicMol()
     if pm is None:
         return []
 
@@ -1361,7 +1281,7 @@ def elim_retro(lp, elim_group, max_sites=2, max_matches=30):
                         pass
     return mols
 
-def ring_close_retro(lp):
+def ring_close_retro(lp,pm=None):
     '''
     Reverse of Ring-closing which will occur after addition of heat
     Source: Reynolds Class Notes, 8-25-20, p.2
@@ -1372,13 +1292,17 @@ def ring_close_retro(lp):
     
     start_match = Chem.MolFromSmarts('[c,C;!R0;!R1](=O)[n,N;!R0;!R1]')
     end_match = Chem.MolFromSmarts('[#6R0](=O)([OH])[C,c][C,c][CR1](=O)[NR1]')
-    pm = lp.PeriodicMol()
+    if pm is None:
+        pm = lp.PeriodicMol()
+        if pm is not None:
+            pm.GetSSSR()
+    
     if pm is None:
         return []
-    pm.GetSSSR()
+    
     
     mols = []
-    if pm.mol.HasSubstructMatch(start_match) and not pm.mol.HasSubstructMatch(end_match): 
+    if pm.HasSubstructMatch(start_match) and not pm.HasSubstructMatch(end_match): 
         lp_no_connect_inds = np.array([x for x in range(lp.mol.GetNumAtoms()) if x not in lp.star_inds])
         def lp_to_pm_ind(lp_ind):
             return int(np.argwhere(lp_no_connect_inds==lp_ind))
@@ -1615,7 +1539,7 @@ def search_polymer(lp,polymer_set):
     
 
 class ReactionPath:
-    def __init__(self, reaction_step_ls):
+    def __init__(self, reaction_step_ls, is_dimer=False):
         self.reaction_step_ls = reaction_step_ls
         self.lp_syn_score = None
         self.can_smiles = None
@@ -1628,6 +1552,7 @@ class ReactionPath:
         self.syn_class = None
         self.r_mols = None
         self.depolymerization_step = None
+        self.is_dimer = is_dimer
     
     def GetLP(self): #must make a separate function for this to avoid pickling issues
         self.lp = ru.LinearPol(self.reaction_step_ls[0].product_mol) #is a polymer
@@ -1716,17 +1641,19 @@ class ReactionPath:
     #     if self.doi is None and self.lp_exists:
     #         self.doi = doi_dict[self.can_smiles]
 
-def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
+def retro_depolymerize(lp,pm=None,radion=True,sg=True,ox=True,ro=True,debug=False):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
+    if pm is None:
+        pm = lp.PeriodicMol()
     ReactionStepList = []
     #do free-radical depolymerization
     if radion:
-        monomer_ls = frp_depolymerize(mol)
+        monomer_ls = frp_depolymerize(lp)
         if monomer_ls is not None:
             for monomer in monomer_ls:
-                rs = ReactionStep(monomer,mol,frp_depolymerize)
+                rs = ReactionStep(monomer,lp.mol,frp_depolymerize)
                 ReactionStepList.append(rs)
     #do step-growth depolymerization
     if sg:
@@ -1739,118 +1666,135 @@ def retro_depolymerize(mol,radion=True,sg=True,ox=True,ro=True,debug=False):
             for rxn_info in sg_rxns[linkage_smiles]:
                 if debug:
                     print('##### %s #####' %linkage_smiles)
-                monomers = sg_depolymerize(mol,linkage_mol,rxn_info,debug=debug)
+                monomers = sg_depolymerize(lp,linkage_mol,rxn_info,pm=pm,debug=debug)
                 if monomers != None:
                     for monomer in monomers:
-                        rs = ReactionStep(monomer,mol,sg_depolymerize)
+                        rs = ReactionStep(monomer,lp.mol,sg_depolymerize)
                         ReactionStepList.append(rs)
     #do oxidative depolymerization
     if ox:
-        monomer_ls = ox_depolymerize(mol)
+        monomer_ls = ox_depolymerize(lp)
         if monomer_ls is not None:
             for monomer in monomer_ls:
-                rs = ReactionStep(monomer,mol,ox_depolymerize)
+                rs = ReactionStep(monomer,lp.mol,ox_depolymerize)
                 ReactionStepList.append(rs)
     #do ring-opening depolymerization
     if ro:
         linkages = ro_linkages.keys()
         for l in linkages:
-            monomers = ro_depolymerize(mol,l)
+            monomers = ro_depolymerize(lp,l,pm=pm)
             if monomers != None:
                 for m in monomers:
-                    rs = ReactionStep(m,mol,ro_depolymerize)
+                    rs = ReactionStep(m,lp.mol,ro_depolymerize)
                     ReactionStepList.append(rs)
     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in ReactionStepList])
     return [ReactionStepList[i] for i in keep_inds] 
 
 post_polymerization_rxns = [ring_close_retro, func_chain_retro, hydrogenate_chain, elim_retro] #each return type should be ***list of mols*** or ***empty*** list
 
-def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False, hydrogenate_chain=True,debug=False):
+def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain_reactions=True,dimerize=False, hydrogenate_chain=True,debug=False,greedy=True):
     '''
     Input a list of smiles and return the synthesis pathways
     '''
-    if type(smiles_ls) == 'str': #handle case of one string passed in
+    if type(smiles_ls) == 'str': #handle case of single string passed in
         smiles_ls = [smiles_ls]
-
+    
+    #determine from user input which chain reactions to perform
+    if chain_reactions:
+        exclude_chain_rxns = [] #skip these reactions
+        if not hydrogenate_chain:
+            exclude_chain_rxns.append('hydrogenate_chain')
+        if debug:
+            print('Exlude rxns:', exclude_chain_rxns)
+        keep_chain_rxns = [rxn for rxn in post_polymerization_rxns if not ru.checkSubstrings(exclude_chain_rxns,str(rxn))]
+    
     def helper(sm):
         mol = Chem.MolFromSmiles(sm)
         lp = ru.LinearPol(mol)
+        pm = lp.PeriodicMol()
         sm_RxnPaths = [ReactionPath([])]
         if dimerize:
             lp2 = lp.multiply(2)
             Chem.GetSSSR(lp2.mol)
-            sm_RxnPaths += [ReactionPath([])]
+            pm2 = lp2.PeriodicMol()
+            sm_RxnPaths += [ReactionPath([],is_dimer=True)]
         if debug:
             print('#######')
             print(sm)
         if chain_reactions:
-            exclude_rxns = []
-            if not hydrogenate_chain:
-                exclude_rxns.append('hydrogenate_chain')
-                if debug:
-                    print('Exlude rxns:', exclude_rxns)
-            for rxn in [rxn for rxn in post_polymerization_rxns if not ru.checkSubstrings(exclude_rxns,str(rxn))]:
+            for rxn in keep_chain_rxns:
                 if debug:
                     print(str(rxn))
-                inner_RxnPaths = []
+                inner_RxnPaths = [] #the list where RxnPaths generated after rxn will be added
                 for RxnPath in sm_RxnPaths:
-                    print()
-                    i = 1
+                    #select the mol to react
                     if RxnPath.reaction_step_ls == []:
-                        if i == 1:
-                            curr_mol = lp.mol #the mol to depolymerize
-                            i += 1
-                        elif i == 2 and dimerize:
-                            curr_mol = lp2.mol
+                        if RxnPath.is_dimer:
+                            curr_lp = lp2 #the mol to depolymerize
+                            curr_pm = pm2
+                        else:
+                            curr_lp = lp
+                            curr_pm = pm
                     else:
                         curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
-                    if 'elim_retro' in str(rxn):
-                        if not ru.is_soluble(curr_mol):
+                        curr_lp = ru.LinearPol(curr_mol)
+                        curr_pm = curr_lp.PeriodicMol()
+                    reaction_string = str(rxn)
+                    if 'elim_retro' in reaction_string:
+                        if not ru.is_soluble(curr_lp): #elimination reactions only need to occur for polymers that are not soluble 
                             RxnSteps = []
-                            # if debug:
-                            #     print('n elim rxns:', len(elim_rxns.keys()))
                             for elim_group in elim_rxns.keys():
                                 if debug:
                                     print('elim_group:',elim_group)
                                 try:
-                                    RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_mol,elim_group)] ) 
+                                    RxnSteps.extend( [ReactionStep(product=curr_lp.mol,reactant=x,rxn_fn_hash=rxn,addl_rxn_info=elim_group) for x in rxn(curr_lp,elim_group,pm=curr_pm)] ) 
                                 except:
-                                    if debug:
-                                        return curr_mol
-                    elif 'func_chain' in str(rxn):
+                                    if greedy: #greedy = ignore and skip errors 
+                                        pass
+                                    else:
+                                        return curr_lp.mol
+                    elif 'func_chain' in reaction_string:
                         RxnSteps = []
                         for k in func_chain_rxns.keys():
-                           RxnSteps.extend( [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol,rxn=k)] )                        
-                    else:
-                        RxnSteps = [ReactionStep(product=curr_mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_mol)]
-                    #print('RxnSteps len:', len(RxnSteps))
+                           RxnSteps.extend( [ReactionStep(product=curr_lp.mol,reactant=x,rxn_fn_hash=rxn) for x in rxn(curr_lp,rxn=k)] )                        
+                    elif 'ring_close' in reaction_string:
+                        RxnSteps = [ReactionStep(product=curr_lp.mol,reactant=x,rxn_fn_hash=rxn) for x in ring_close_retro(curr_lp,pm=curr_pm)]
+                    elif 'hydro' in reaction_string:
+                        RxnSteps = [ReactionStep(product=curr_lp.mol,reactant=x,rxn_fn_hash=rxn) for x in hydrogenate_chain(curr_lp)]
+
+                    #filter unique steps
                     keep_inds = ru.arg_unique_ordered([x.SetRepresentation() for x in RxnSteps])
-                    #print('Unique RxnSteps len:',len(keep_inds))
                     unique_RxnSteps = [RxnSteps[i] for i in keep_inds]
+
                     inner_RxnPaths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x]) for x in unique_RxnSteps] )
+                
                 sm_RxnPaths = sm_RxnPaths + inner_RxnPaths #update sm_RxnPaths
+                
                 if debug:
                     print('inner_RxnPaths len:', len(inner_RxnPaths))
+            
             if debug:
                 print('sm_RxnPaths len:', len(sm_RxnPaths))
         
         final_rxn_paths = []
         for RxnPath in sm_RxnPaths:
-            i = 1
+            #select the mol to depolymerize
             if RxnPath.reaction_step_ls == []:
-                if i == 1:
-                    curr_mol = lp.mol #the mol to depolymerize
-                    i += 1
-                elif i == 2 and dimerize:
-                    curr_mol = lp2.mol
+                if RxnPath.is_dimer:
+                    curr_lp= lp2
+                else:
+                    curr_lp = lp
             else:
-                curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol #the mol to depolymerize
+                curr_mol = RxnPath.reaction_step_ls[-1].reactant_mol
+                curr_lp = ru.LinearPol(curr_mol)
+            curr_pm = curr_lp.PeriodicMol()
+
             try:
-                DepolymerizationSteps = retro_depolymerize(curr_mol,radion=radion,sg=sg,ox=ox,ro=ro)
+                DepolymerizationSteps = retro_depolymerize(curr_lp,curr_pm,radion=radion,sg=sg,ox=ox,ro=ro)
                 final_rxn_paths.extend( [ ReactionPath(RxnPath.reaction_step_ls + [x]) for x in DepolymerizationSteps] )
             except:
                 print(sm)
-                if debug:
+                if greedy:
                     raise ValueError
                 else:
                     pass
@@ -1867,5 +1811,5 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
                 all_RxnPaths.extend( RxnPaths )
     else:
         all_RxnPaths_ll = Parallel(n_jobs=n_core)(delayed(helper)(sm) for sm in smiles_ls)
-        all_RxnPaths = ru.flatten_ll(all_RxnPaths_ll)
+        all_RxnPaths = ru.flatten_ll(all_RxnPaths_ll) #flatten list of lists of RxnPaths
     return all_RxnPaths
