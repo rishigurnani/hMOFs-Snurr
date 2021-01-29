@@ -74,20 +74,42 @@ def hydrogenate_chain(lp,max_replacements=1):
     return mols
 
 func_chain_rxns = {
-    'nitro_base':Chem.MolFromSmarts('n[*R0]'),
-    'SO2_oxidation':Chem.MolFromSmarts('S(=O)(=O)')
-    }
+    'nitro_base':Chem.MolFromSmarts('n[*R0]'), #test SMILES = [*]C1=CC(=CC=C1)C6=NC2=C(C=C(C=C2)C3=CC4=C(C=C3)N=C([*])[N]4CC5=CC=CC=C5)[N]6CC7=CC=CC=C7
+    'SO2_oxidation':Chem.MolFromSmarts('S(=O)(=O)'), #test SMILEs = [*]Oc1ccc(S(=O)(=O)c2ccc(Oc3ccc(C(C)(C)c4ccc([*])cc4)cc3)cc2)cc1
+    'aldean': #aldean = ALDehydes + Alpha-Effect Nucleophiles
+                #Catalyst = aniline
+                #Source: Dr. Finn Lecture Slides, p. 18
+        ['[*;R0,R1,R2:0][NHR0:1][NH0R0:2]=[CR0:3]([*;R0,R1,R2:4])[*;R0,R1,R2:5]>>[*:4][C:3](=O)[*:5].[NH2:2][NH:1][*:0]', #when R != H
+        '[*;R0,R1,R2:0][NHR0:1][NH0R0:2]=[CR0:3][*;R0,R1,R2:5]>>[C:3](=O)[*:5].[NH2:2][NH:1][*:0]'], #when R = H
+        #first item in list is checked first, last item is checked last
+    'thiol-ene': #catalyst = radical initiator
+                #Source: Dr. Finn Lecture Slides, p. 27
+        ['[*;R0:1][Sv2:2][CH2:3][CH2:4][*;R0,R1,R2:5]>>[CH2:3]=[CH:4][*:5].[*:1][SH:2]'],
+    'azal': #azal = Azide + Alkyne
+            #Catalyst = Cu(1)
+            #Source:  Dr. Finn Lecture Slides, p. 29-36
+        ['[*:6][#7:1]1:[#6:4]:[#6:5]:[#7:2]:[#7:3]:1>>[C:4]#[C:5].[*:6][N:1]=[NX2+:2]=[NX1-:3]']
+}
 
 def func_chain_retro(lp,rxn):
     '''
-    Functions to retrosynthetically functionalize chains
+    Functions to retrosynthetically functionalize chains. The majority of reactions only transform at most one match.
     '''
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
-    # if rxn == 'nitro_base':
-    #     r_mol = lp.MainChainMol()#reduced mol 
-    # if rxn != 'nitro_base':
-    #     r_mol = r_mol.PeriodicMol()
+
+
+    if rxn in ['aldean','thiol-ene','azal']:
+        ls = func_chain_rxns[rxn]
+        for smart in ls:
+            RD_rxn = Chem.AllChem.ReactionFromSmarts(smart) #RDKit reaction object
+            rxn_out = RD_rxn.RunReactants((lp.mol,))
+            if len(rxn_out) != 0:
+                for mol in rxn_out[0]: #only look at first set of reactants
+                    if mol.HasSubstructMatch(Chem.MolFromSmarts('[#0]')):
+                        return [mol]
+        return []
+
     replace_group = func_chain_rxns[rxn]
     if rxn == 'nitro_base':
         sc = lp.SideChainMol()
