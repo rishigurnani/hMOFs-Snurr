@@ -259,29 +259,13 @@ def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
         if max([len(r) for r in ar]) > 9: #don't allow large rings
             return None
         pm_match_set = [set(match) for match in pm_matches]
-        match_ring = None
         if ro_linkage_key not in ['cyclic_ether', 'cyclic_sulfide']: #most rings will only polymerize w/ one linkage
             if len(pm_matches) != 1: #the pm should have just one match of linkage
                 return None
-            for ring in ar:            
-                if match_ring is not None:
-                    break
-                for match in pm_match_set:
-                    if len( match.intersection(ring) ) > 0:
-                        match_ring = ring
-                        break            
+
         else: #few rings can polymerize w/ more than one linkage but all linkages must be in same ring.
             if len(pm_matches) == 0: 
                 return None
-            n_ring_matches = 0
-            for ring in ar:            
-                for match in pm_match_set:
-                    if len( match.intersection(ring) ) > 0:
-                        n_ring_matches += 1
-                        match_ring = ring
-                        break
-                if n_ring_matches > 1:
-                    return None    
 
         #check selectivity
         if selectivity:

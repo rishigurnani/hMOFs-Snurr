@@ -465,9 +465,9 @@ def retrosynthesize(smiles_ls,n_core=1,radion=True,sg=True,ox=True,ro=True,chain
             except:
                 print(sm)
                 if greedy:
-                    raise ValueError
-                else:
                     pass
+                else:
+                    raise ValueError
         return final_rxn_paths
 
 
