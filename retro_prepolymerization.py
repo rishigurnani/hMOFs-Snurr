@@ -254,28 +254,34 @@ def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
             pm = lp.PeriodicMol()
             if pm is not None:
                 pm.GetSSSR()
+        
         pm_matches = pm.GetSubstructMatches(linkage)
 
         if ro_linkage_key not in ['cyclic_ether', 'cyclic_sulfide']: #most rings will only polymerize w/ one linkage
             if len(pm_matches) != 1: #the pm should have just one match of linkage
+                print('here2')
                 return None
 
         else: #few rings can polymerize w/ more than one linkage but all linkages must be in same ring.
             if len(pm_matches) == 0: 
                 return None
-                
+
         ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
         if max([len(r) for r in ar]) > 9: #don't allow large rings
             return None
         pm_match_set = [set(match) for match in pm_matches]
 
+        r2_matches = ru.flatten_ll(pm.GetSubstructMatches(Chem.MolFromSmarts('[!R0;!R1]')))
+        if len( set(r2_matches).intersection(ru.flatten_ll(pm_match_set)) ) != 0: #don't allow matched atoms to be part of 2+ rings. Consider methods to speed this up
+            return None
+
         #check selectivity
         if selectivity:
-            pm_match_set = set(ru.flatten_ll(pm_matches))
+            pm_match_flat_set = set(ru.flatten_ll(pm_matches))
             other_linkage_keys = [k for k in ro_linkages.keys() if k != ro_linkage_key]
             for k in other_linkage_keys:
                 k_matches = set(ru.flatten_ll(pm.GetSubstructMatches( ro_linkages[k] )))
-                if len(  k_matches.difference(pm_match_set) ) > 0: 
+                if len(  k_matches.difference(pm_match_flat_set) ) > 0: 
                     return None
 
         reduced_pm = None

@@ -11,6 +11,7 @@ import re
 from joblib import Parallel, delayed
 from retro_prepolymerization import *
 from retro_postpolymerization import *
+import retro_prepolymerization as pre
 
 ### set up scscore ###
 from scscore import standalone_model_numpy as sc
@@ -354,7 +355,7 @@ def retro_depolymerize(lp,pm=None,radion=True,sg=True,ox=True,ro=True,debug=Fals
     if ro:
         linkages = ro_linkages.keys()
         for l in linkages:
-            monomers = ro_depolymerize(lp,l,pm=pm)
+            monomers = pre.ro_depolymerize(lp,l,pm=pm)
             if monomers != None:
                 for m in monomers:
                     rs = ReactionStep(m,lp.mol,ro_depolymerize)
