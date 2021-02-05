@@ -255,10 +255,7 @@ def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
             if pm is not None:
                 pm.GetSSSR()
         pm_matches = pm.GetSubstructMatches(linkage)
-        ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
-        if max([len(r) for r in ar]) > 9: #don't allow large rings
-            return None
-        pm_match_set = [set(match) for match in pm_matches]
+
         if ro_linkage_key not in ['cyclic_ether', 'cyclic_sulfide']: #most rings will only polymerize w/ one linkage
             if len(pm_matches) != 1: #the pm should have just one match of linkage
                 return None
@@ -266,6 +263,11 @@ def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
         else: #few rings can polymerize w/ more than one linkage but all linkages must be in same ring.
             if len(pm_matches) == 0: 
                 return None
+                
+        ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
+        if max([len(r) for r in ar]) > 9: #don't allow large rings
+            return None
+        pm_match_set = [set(match) for match in pm_matches]
 
         #check selectivity
         if selectivity:
