@@ -241,6 +241,9 @@ def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
     if type(lp) == str or type(lp) == Chem.rdchem.Mol: #only for convenience. Pass in LinearPol object when possible
         lp = ru.LinearPol(lp)
     
+    if lp.mol.GetNumAtoms() > 25: #constraint loosely based on Su WF. (2013) Ring-Opening Polymerization. In: Principles of Polymer Design and Synthesis.
+        return None
+
     try:
         linkage = ro_linkages[ro_linkage_key]
         
@@ -267,7 +270,7 @@ def ro_depolymerize(lp, ro_linkage_key, pm=None, selectivity=False):
                 return None
 
         ar = [set(ring) for ring in pm.GetRingInfo().AtomRings()]
-        if max([len(r) for r in ar]) > 9: #don't allow large rings
+        if max([len(r) for r in ar]) > 13: #don't allow large rings. Constraint from Section 11.1, Su WF. (2013) Ring-Opening Polymerization. In: Principles of Polymer Design and Synthesis. 
             return None
         pm_match_set = [set(match) for match in pm_matches]
 
