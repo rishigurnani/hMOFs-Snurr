@@ -35,6 +35,8 @@ from rdkit.Chem.Draw import SimilarityMaps
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 mpl.rcParams['figure.dpi']= 600
+import json
+import requests
 
 def pd_load(path):
     try:
@@ -1152,3 +1154,45 @@ def is_soluble(pol):
         return False
     else:
         return True
+
+class PolyDatabase:
+    def __init__(self):
+        self.df = None
+        self.integrated_df = None #this df contains the PolyInfo IDs
+    def load(self):
+        self.df = pd_load('/data/rgur/g2g/raw_data/poly_data/psweb_database_2020_12_20.csv')
+    def load_integrated_df(self):
+        self.integrated_df = pd_load('/data/rgur/g2g/raw_data/poly_data/fpn_polymer_master_data_v20200625.csv')
+    def GetKnown(self):
+        if self.df is None:
+            self.load()
+        return self.df[self.df['category'] == 'known']
+    def pid_lookup(self,sm):
+        '''
+        This smiles, sm, should not be canonical.
+        '''
+        if self.df is None:
+            self.load()
+        if self.integrated_df is None:
+            self.load_integrated_df()
+        name = self.df[self.df['smiles'] == sm]['name_iupac_so'].unique()[0]
+        name =  name[2:-2] #get rid of quotes and brackets
+        return self.integrated_df[self.integrated_df['IUPAC_structure']==name]['PID'].unique()[0]
+
+def pg_predict(sm_ls):
+    results = None
+    url = 'https://pgserver.apps.openshift.ecs.vapor.gatech.edu/_pg_predict'
+    #url = 'http://gaanam3.mse.gatech.edu:8150/_pg_predict'
+    pn = ('pg', 'gpr_predict')
+    df_ls = []
+    for x in sm_ls:
+        data = dict(smiles = x)
+        try:
+            results = json.loads(requests.get(url, json = data, auth=pn).text)
+            # df = pd.DataFrame(results, index=data['smiles'])
+            df = pd.DataFrame(results)
+            df['polymer'] = data['smiles']
+            df_ls.append(df[['polymer', 'COE', 'COE.std', 'eps', 'eps.std']])
+        except:
+            print(x, 'failed')
+    return pd.concat(df_ls, ignore_index=True)
